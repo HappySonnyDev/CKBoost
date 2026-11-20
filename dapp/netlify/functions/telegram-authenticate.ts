@@ -6,8 +6,6 @@ import { ccc } from "@ckb-ccc/shell";
 import { deploymentManager } from "@/lib/ckb/deployment-manager";
 import { VerificationDataEntries } from "@/lib/types/identity";
 import { TelegramVerificationData } from "../../lib/types/identity";
-import { bytesFrom } from "../../../../ccc/packages/core/src/bytes/index";
-import { stringify } from "../../../../ccc/packages/core/src/utils/index";
 import { createLogger } from "@/netlify/lib/log";
 import {
   ensureProxyAdminCellPair,

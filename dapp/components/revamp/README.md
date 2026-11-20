@@ -15,7 +15,7 @@ The `(legacy)` route group owns the original Nextra layout and page map; its URL
 
 Next's build config derives a small public current-deployment constant from the authoritative `deployments.json`. Discovery reads that constant instead of importing the full deployment history. The original manager, history and shared server protocol helpers keep their APIs and data; loading the manager binds the same current object so its existing in-memory updates remain visible. This requires no new manual environment configuration and does not change deployment records.
 
-Isolated QA runtimes are an explicit opt-in with a validated public profile, distinct protocol identity, scoped drafts and separate build output. The default configuration continues to use `deployments.json`. Public Testnet and shared Nostr relays remain shared services, not a private sandbox. Local setup/upgrade operators are disabled unless `CKBOOST_ENABLE_TESTNET_SETUP=1`. Their loopback-only artifact endpoints load separately verified public manifests at `../../../outputs` and exact pinned ELFs at `../../testnet-release`, including `permissions-v2` for upgrades; both paths are relative to the `dapp` working directory. These external artifacts are not included in a normal checkout or required by the default app; artifact loading fails closed if they are missing or mismatched. Moving a checkout requires providing and verifying those artifacts again. Loading a profile or artifact does not deploy code or activate a runtime.
+Isolated QA runtimes are an explicit opt-in with a validated public profile, distinct protocol identity, scoped drafts and separate build output. The default configuration continues to use `deployments.json`. Public Testnet and shared Nostr relays remain shared services, not a private sandbox. The shared QA setup below ships a public runtime and launches the app against contracts that are already deployed. Local setup/upgrade operators stay disabled. Only when using those operators with `CKBOOST_ENABLE_TESTNET_SETUP=1` do their loopback-only artifact endpoints require separately verified public manifests at `../../../outputs` and exact pinned ELFs at `../../testnet-release`, including `permissions-v2` for upgrades; both paths are relative to the `dapp` working directory. Those external operator artifacts are not included in a normal checkout, and are not needed by `qa:build` or `qa:start`. Operator artifact loading fails closed if they are missing or mismatched. Loading a profile or artifact does not deploy code or activate a runtime.
 
 Colors use wrapper-scoped `--ckb-` variables and CSS Modules. `ckboost-revamp-theme` never changes the document theme class or the old theme preference. Radix portals use the wrapper container. Exact Figma exports live in `public/assets/revamp`; fonts are local, with the new fonts’ OFL notices. Existing Cabinet Grotesk and UI primitives are reused.
 
@@ -49,6 +49,105 @@ Drafts/templates are local and scoped by network, protocol and wallet. Browser B
 
 From `dapp`, run `./node_modules/.bin/jest components/revamp/__tests__ lib/revamp/__tests__ netlify/lib/staff-authorization.test.ts netlify/lib/staff-claimable-rewards.test.ts netlify/__tests__/staff-approve-submissions.test.ts netlify/__tests__/staff-approve-submissions.integration.test.ts netlify/__tests__/isolated-protocol-scope.test.ts netlify/__tests__/platform-stats.test.ts --runInBand` for the focused interaction, isolation, role, data, evidence, transaction-boundary and real-codec proxy-handler suites. Run `./node_modules/.bin/jest --runInBand` for the complete dapp suite. The SDK authorization suites run from `packages/ssri-ckboost` with `pnpm exec jest --config sdk-auth.jest.config.cjs --runInBand`.
 
-Run `./node_modules/.bin/tsc --noEmit --incremental false` separately from `NEXT_TELEMETRY_DISABLED=1 ./node_modules/.bin/next build --webpack`. The repository config already sets `typescript.ignoreBuildErrors: true`; build success is not a clean type-check guarantee. The final type check retains 10 pre-existing tipping, profile and Netlify diagnostics; no new-code diagnostics remain.
+Run `./node_modules/.bin/tsc --noEmit --incremental false` separately from `NEXT_TELEMETRY_DISABLED=1 ./node_modules/.bin/next build --webpack`. The repository config already sets `typescript.ignoreBuildErrors: true`; build success is not a clean type-check guarantee. The latest clean-checkout type check retains 8 pre-existing tipping, profile and Netlify diagnostics. Two unused imports from an external CCC checkout were removed for portable local startup.
 
 Browser acceptance compares the supplied desktop frames and checks narrow layouts, Light/Dark, filters and direct-route access. Wallet-signing and on-chain permission behavior require the corresponding contract tests and an upgraded test deployment; no real wallet transaction is executed as part of visual QA.
+
+## Shared Testnet QA setup
+
+This selects the same QA protocol used for the four-account acceptance flow.
+It is a shared protocol on public CKB Testnet, not a new local blockchain or an
+independent sandbox for each developer. Activity and response content may be
+published to public Nostr relays. Use test content and your own test wallet.
+
+Prerequisites:
+
+- macOS or Linux shell; on Windows use WSL. Native Windows command launching is not supported by these scripts.
+- Node **22.13+**; the verified local version is **22.19.0**.
+- pnpm **9.15.9**.
+- Docker with Linux/amd64 support, including emulation on ARM hosts.
+- Internet access for package installation, Docker images and public Testnet.
+
+Check `node --version` and `pnpm --version` first. If needed, install the pinned
+package manager with `npm install --global pnpm@9.15.9`; the QA preparation
+command rejects other pnpm versions rather than rewriting the lockfiles.
+
+Clone the fork's development branch:
+
+```sh
+git clone --branch codex/ckboost-revamp https://github.com/HappySonnyDev/CKBoost.git
+cd CKBoost/dapp
+pnpm qa:prepare
+pnpm qa:plan
+```
+
+`qa:prepare` installs the three repository-local packages with frozen lockfiles,
+compiles their checked-in TypeScript sources and syncs TinyMCE. It skips install
+lifecycle hooks and does not run Rust, Molecule generation, contract deployment,
+wallet signing or chain writes. It does not copy anyone's `.env.local` or keys.
+
+`qa:plan` is an offline check of the committed public runtime. Verify these
+identities in its output:
+
+| Identity | Expected value |
+| --- | --- |
+| Protocol | `0x4eacaf9b1a120d2bfd99f26fcedfdcfe6ef116484e9b478b0a104a872316e034` |
+| Runtime profile | `0x129cd99c43113ab92b4ec5331693c402dd1f40b9269fff6c223ad4d3c201b297` |
+| User Type | `0xecc4b989dc3bfc2f80e22226d14b4b04257e8f4bf3d8298f80619b798e12cb2c` |
+| Executor | `http://127.0.0.1:9091/` |
+
+In terminal A, start the pinned executor and the required compatibility bridge:
+
+```sh
+pnpm qa:ssri:plan
+pnpm qa:ssri
+```
+
+Keep that process running. It starts the same Linux/amd64 executor image used
+for acceptance, pinned by digest, on loopback port 9090. The host bridge on 9091
+adapts the installed CCC transaction-context format to that executor. Only the
+four read-only SSRI execution methods are allowed; there is no wallet or
+transaction-broadcast API. The Docker image's baked Testnet settings are used;
+no host credential or wallet directory is mounted.
+
+In terminal B, from `CKBoost/dapp`:
+
+```sh
+pnpm qa:check
+pnpm qa:build
+pnpm qa:start
+```
+
+Open <http://localhost:9004/revamp>. The existing Profile/claim interface is at
+<http://localhost:9004/profile>. The app also needs ports 9005 and 9994 for Next
+and local functions; occupied ports cause an error rather than stopping another
+process. Netlify CLI **27.20.0** is invoked through `pnpm dlx`, so its first start
+may download the pinned CLI. These local commands do not publish a Netlify site.
+
+`qa:check` checks local prerequisites and executor reachability; it is not a new
+live-chain acceptance result. The build and server use the same derived public
+environment. Per-machine paths and build records stay in `.qa-local/`, and
+Next output stays in `.next-isolated-129cd99c4311/`. Neither directory belongs
+in Git. Do not replace `deployments.json`, copy another machine's generated
+Netlify config, or enable the deployment workbench to join this environment.
+
+The committed `config/qa/ckboost-testnet.json` contains public on-chain identities
+and deployment provenance, including historical creation manifests. Its
+`current` records select the upgraded QA code. Initialization data is not a
+snapshot of today's roles or campaigns: the app loads current business state
+from the chain. Do not hand-edit its ancestry or profile hash. A later QA code
+upgrade requires a newly validated profile and a matching build.
+
+Connecting a wallet does not grant a role. Use your own Testnet funds and ask the
+QA platform administrator for an Organizer grant when needed. Reviewers must be
+assigned to the specific campaign by its authorized owner or a platform admin.
+The original four acceptance accounts' keys are not included or shared. Browser
+drafts and templates are local; only confirmed chain/Nostr state is shared.
+
+Normal `pnpm dev`/`pnpm build` continue to use the original default configuration.
+Use the `qa:*` commands explicitly for this shared QA environment.
+
+Run `pnpm qa:test` for the portable launcher, dependency preparation, SSRI bridge
+and Docker lifecycle tests. These use temporary fixtures and mocked or ephemeral
+local services; they do not deploy contracts or sign transactions. After pulling
+source changes, prepare dependencies as needed and rebuild before starting QA.

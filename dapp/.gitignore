@@ -1,6 +1,7 @@
 # Next.js build output, including per-profile local QA builds
 /.next/
 /.next-isolated-*/
+/.qa-local/
 
 # Local Netlify folder
 .netlify

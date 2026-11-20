@@ -69,11 +69,16 @@ CKBoost/
 
 ### Prerequisites
 
-- **Node.js** 18+ with **pnpm**
+- **Node.js** 20.9+ with **pnpm** (shared QA uses Node 22.13+ and pnpm 9.15.9)
 - **Rust** toolchain for contract development
 - **CKB Node** for blockchain interaction (development/testnet)
 
 ### Quick Start
+
+For this branch's already-deployed, shared Testnet QA environment, use the
+[shared QA setup](dapp/components/revamp/README.md#shared-testnet-qa-setup)
+instead of the default configuration below. That workflow needs no wallet key,
+Rust build or new contract deployment; it explicitly selects the QA protocol.
 
 1. **Clone the repository**
 
