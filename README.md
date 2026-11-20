@@ -69,40 +69,50 @@ CKBoost/
 
 ### Prerequisites
 
-- **Node.js** 20.9+ with **pnpm** (shared QA uses Node 22.13+ and pnpm 9.15.9)
-- **Rust** toolchain for contract development
-- **CKB Node** for blockchain interaction (development/testnet)
+- **Node.js 22.13+** and **pnpm 9.15.9** for the shared QA commands
+- **Docker running**, with Linux/amd64 support (emulation is required on ARM hosts)
+- **macOS, Linux, or WSL**; the QA launcher does not support native Windows shells
+- Internet access for dependencies, the pinned Docker image and public Testnet
+- A Rust toolchain or your own CKB node is needed only for contract development/custom infrastructure, not for joining shared QA
 
-### Quick Start
+### Quick Start: shared Testnet QA
 
-For this branch's already-deployed, shared Testnet QA environment, use the
-[shared QA setup](dapp/components/revamp/README.md#shared-testnet-qa-setup)
-instead of the default configuration below. That workflow needs no wallet key,
-Rust build or new contract deployment; it explicitly selects the QA protocol.
+Clone this development branch, then use one foreground terminal:
 
-1. **Clone the repository**
+```sh
+git clone --branch codex/ckboost-revamp https://github.com/HappySonnyDev/CKBoost.git
+cd CKBoost/dapp
+pnpm qa
+```
 
-   ```bash
-   git clone https://github.com/Alive24/CKBoost.git
-   cd CKBoost
-   ```
+Open <http://localhost:9004/revamp> when startup completes. `pnpm qa` checks the
+fixed application and SSRI ports before writing local preparation/build files,
+prepares dependencies with frozen lockfiles, starts its own pinned SSRI Docker
+executor and compatibility bridge, builds the QA app, and serves the app and
+local functions. Keep that terminal open; Ctrl+C cleans up only children started
+by this command. Occupied ports or an existing `ckboost-ssri-qa` container cause
+a refusal; existing services are preserved.
 
-2. **Start the application (dApp and serverless functions)**
+The first startup installs dependencies, downloads required tools/images and
+builds the app. Later startups also run preparation and build; this is not a
+build-cache shortcut. Docker must already be running. You do not need Rust, a
+new contract deployment, someone else's environment file or a wallet private key.
 
-   Set `dapp/.env.local` (RPC/indexer URLs, `NEXT_PUBLIC_SSRI_EXECUTOR_URL`, `NEXT_PUBLIC_PROTOCOL_TYPE_ARGS` from `deployment-summary.md` or `deployments.json`, `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME`, etc.) using `dapp/DEPLOYMENT.md` as a reference.
+This joins an already-deployed **shared public Testnet protocol**, not an
+independent sandbox. Chain state and Nostr content are public/shared. Connect
+your own test wallet and obtain the required Organizer or campaign Reviewer
+grant from the QA administrator/authorized owner. Startup does not connect a
+wallet, grant roles or sign transactions. See the
+[shared QA guide](dapp/components/revamp/README.md#shared-testnet-qa-setup)
+for identities, boundaries and the advanced multi-terminal workflow.
 
-   ```bash
-   cd dapp
-   netlify dev
-   ```
+### Advanced: original configuration
 
-   The application will be available at `http://localhost:9003` (depending on the port you set in `dapp/netlify.toml`)
-
-3. **Build smart contracts** (optional for frontend development)
-   ```bash
-   cd contracts
-   make build
-   ```
+Normal `pnpm dev`/`pnpm build` keep the original defaults. For that configuration,
+set `dapp/.env.local` using `dapp/DEPLOYMENT.md`, then run `netlify dev` from
+`dapp`. Its default URL is <http://localhost:9003>, subject to `netlify.toml`.
+Do not use those defaults to join the shared QA protocol. Contract development
+can separately run `make build` from `contracts`.
 
 ## 🛠️ Technical Architecture
 

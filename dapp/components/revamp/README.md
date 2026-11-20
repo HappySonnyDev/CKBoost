@@ -65,29 +65,46 @@ Prerequisites:
 - macOS or Linux shell; on Windows use WSL. Native Windows command launching is not supported by these scripts.
 - Node **22.13+**; the verified local version is **22.19.0**.
 - pnpm **9.15.9**.
-- Docker with Linux/amd64 support, including emulation on ARM hosts.
+- Docker running, with Linux/amd64 support, including emulation on ARM hosts.
 - Internet access for package installation, Docker images and public Testnet.
 
 Check `node --version` and `pnpm --version` first. If needed, install the pinned
 package manager with `npm install --global pnpm@9.15.9`; the QA preparation
 command rejects other pnpm versions rather than rewriting the lockfiles.
 
-Clone the fork's development branch:
+Docker must already be running. Clone the fork's development branch and start
+the complete QA stack in **one foreground terminal**:
 
 ```sh
 git clone --branch codex/ckboost-revamp https://github.com/HappySonnyDev/CKBoost.git
 cd CKBoost/dapp
-pnpm qa:prepare
-pnpm qa:plan
+pnpm qa
 ```
 
-`qa:prepare` installs the three repository-local packages with frozen lockfiles,
-compiles their checked-in TypeScript sources and syncs TinyMCE. It skips install
-lifecycle hooks and does not run Rust, Molecule generation, contract deployment,
-wallet signing or chain writes. It does not copy anyone's `.env.local` or keys.
+Open <http://localhost:9004/revamp> after startup completes. The existing
+Profile/claim interface is at <http://localhost:9004/profile>.
 
-`qa:plan` is an offline check of the committed public runtime. Verify these
-identities in its output:
+`pnpm qa` checks the fixed ports **9004, 9005, 9994, 9090 and 9091** before local
+preparation/build writes. It prepares repository-local dependencies with frozen
+lockfiles, compiles their TypeScript sources, syncs TinyMCE, starts its own pinned
+SSRI executor and compatibility bridge, builds with the validated QA runtime,
+then starts the app and local functions. No contract deployment, wallet signing
+or chain write is part of startup. It does not copy anyone's `.env.local` or keys.
+
+Keep that terminal open. **Ctrl+C cleans up only the command's owned children.**
+An occupied port or any existing `ckboost-ssri-qa` container causes a refusal;
+the launcher does not stop or remove an existing service/container. Fix the
+reported conflict yourself before retrying.
+
+First startup installs dependencies and may download the pinned Docker image
+and Netlify CLI before building. Every later startup also runs preparation and
+build; no skipped-build/cache shortcut is promised. Local dependencies are
+prepared with frozen lockfiles and install lifecycle hooks disabled. Rust and
+Molecule generation are not needed for this already-deployed environment.
+
+After preparation, `pnpm qa:plan` provides an offline check of the committed
+public runtime. Verify these identities in its output:
+
 
 | Identity | Expected value |
 | --- | --- |
@@ -95,6 +112,18 @@ identities in its output:
 | Runtime profile | `0x129cd99c43113ab92b4ec5331693c402dd1f40b9269fff6c223ad4d3c201b297` |
 | User Type | `0xecc4b989dc3bfc2f80e22226d14b4b04257e8f4bf3d8298f80619b798e12cb2c` |
 | Executor | `http://127.0.0.1:9091/` |
+
+### Advanced: manual multi-terminal startup
+
+Use this alternative when you need separate logs or want to run each stage
+yourself. Do not run it alongside `pnpm qa`; the same fixed ports and container
+name are deliberately exclusive. From `CKBoost/dapp`, prepare once for this
+manual run:
+
+```sh
+pnpm qa:prepare
+pnpm qa:plan
+```
 
 In terminal A, start the pinned executor and the required compatibility bridge:
 
@@ -118,11 +147,11 @@ pnpm qa:build
 pnpm qa:start
 ```
 
-Open <http://localhost:9004/revamp>. The existing Profile/claim interface is at
-<http://localhost:9004/profile>. The app also needs ports 9005 and 9994 for Next
-and local functions; occupied ports cause an error rather than stopping another
-process. Netlify CLI **27.20.0** is invoked through `pnpm dlx`, so its first start
-may download the pinned CLI. These local commands do not publish a Netlify site.
+The app uses ports 9004, 9005 and 9994; SSRI uses 9090 and 9091. Occupied ports
+cause an error rather than stopping another process. Netlify CLI **27.20.0** is
+invoked through `pnpm dlx`, so its first start may download the pinned CLI. These
+local commands do not publish a Netlify site. Keep both terminals open and stop
+each owned foreground process with Ctrl+C when finished.
 
 `qa:check` checks local prerequisites and executor reachability; it is not a new
 live-chain acceptance result. The build and server use the same derived public
@@ -145,9 +174,11 @@ The original four acceptance accounts' keys are not included or shared. Browser
 drafts and templates are local; only confirmed chain/Nostr state is shared.
 
 Normal `pnpm dev`/`pnpm build` continue to use the original default configuration.
-Use the `qa:*` commands explicitly for this shared QA environment.
+Use `pnpm qa`, or the explicit advanced `qa:*` commands, for this shared QA
+environment.
 
 Run `pnpm qa:test` for the portable launcher, dependency preparation, SSRI bridge
 and Docker lifecycle tests. These use temporary fixtures and mocked or ephemeral
 local services; they do not deploy contracts or sign transactions. After pulling
-source changes, prepare dependencies as needed and rebuild before starting QA.
+source changes, run `pnpm qa` again to prepare, build and start with the matching
+source. The advanced manual workflow requires those stages explicitly.
