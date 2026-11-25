@@ -63,8 +63,8 @@ describe("Admin overview current records and funding", () => {
   it("derives Need Action from current approval lists and never fabricates an approval event timestamp", () => {
     const f = fixture();
     expect(adminNeedActions(f.scope, f.snapshot)).toHaveLength(2);
-    expect(adminNeedActions(f.scope, f.snapshot).find(row => row.type === "campaign")?.href).toBe(`/campaign-admin/${h("b")}`);
-    expect(adminNeedActions(f.scope, f.snapshot).find(row => row.type === "tipping")?.href).toBe(`/tipping?tipping=${h("c")}`);
+    expect(adminNeedActions(f.scope, f.snapshot).find(row => row.type === "campaign")?.href).toBe(`/revamp/admin/campaigns/${h("b")}`);
+    expect(adminNeedActions(f.scope, f.snapshot).find(row => row.type === "tipping")?.href).toBe(`/revamp/admin/tipping/${h("c")}`);
     f.scope.protocol.campaigns_approved = [h("b")]; f.scope.protocol.tippings_approved = [h("c")];
     const approvedButNotGranted = adminNeedActions(f.scope, f.snapshot);
     expect(approvedButNotGranted).toHaveLength(1);

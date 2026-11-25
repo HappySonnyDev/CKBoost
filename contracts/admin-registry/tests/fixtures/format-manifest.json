@@ -1,0 +1,59 @@
+{
+  "schema": "ckboost-admin-registry-offline-format/v1",
+  "scope": "Synthetic offline codec fixtures only; not chain evidence or a deployment.",
+  "registry": {
+    "magic": "CKBADMIN",
+    "version": 1,
+    "integerEncoding": "unsigned little endian",
+    "fields": [
+      "magic[8]",
+      "version:u32",
+      "protocolTypeHash[32]",
+      "revision:u64",
+      "expirationSeconds:u64",
+      "thresholdCount:u32",
+      "thresholds:u128[count]",
+      "approverCount:u32",
+      "approvers:byte32[count]",
+      "metadataLength:u32",
+      "metadata:bytes[length]"
+    ],
+    "maxBytes": 131072,
+    "maxThresholds": 32,
+    "maxApprovers": 512,
+    "maxExpirationSeconds": 315360000,
+    "metadata": "Bounded opaque bytes on-chain; canonical attestations/periods JSON validated by frontend"
+  },
+  "sample": {
+    "schema": "ckboost-admin-registry/v1",
+    "protocolTypeHash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+    "revision": "0",
+    "tipping": {
+      "expirationSeconds": "2592000",
+      "thresholdsShannons": [
+        "100000000",
+        "340282366920938463463374607431768211455"
+      ],
+      "approverLockHashes": [
+        "0x2222222222222222222222222222222222222222222222222222222222222222",
+        "0x3333333333333333333333333333333333333333333333333333333333333333"
+      ]
+    },
+    "attestations": [],
+    "periods": []
+  },
+  "fixtures": [
+    {
+      "file": "frontend-registry-v1.bin",
+      "bytes": 200,
+      "sha256": "6ed0d97ffa02ba23e1741e408aa64828a92731b3fbca704346658efc1df1cb69",
+      "dataHash": "0x42227ab64ea73097d3344f6dbd31d448ab984a873465aace5ec881ca98aedbda"
+    },
+    {
+      "file": "frontend-protocol-v1.bin",
+      "bytes": 500,
+      "sha256": "c2ea30cd7a74f9e4387864484f2d0ff3e36c53cd3fe12a9bdba2aab02644b128",
+      "dataHash": "0x241b3d267c50bff6374f5d12fe9b7ddfb02f542849b0cc2eef9084a1e56a067b"
+    }
+  ]
+}

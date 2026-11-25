@@ -193,6 +193,9 @@ async function calculateFeeRate(
 export type SendTransactionOptions = {
   pendingMetadata?: PendingTransactionMetadata;
   preserveOutputCapacityIndices?: ReadonlySet<number>;
+  /** Admin review flows retain ambiguous attempts and require an explicit
+   * next action; they must not open a second wallet prompt automatically. */
+  allowFeeRetry?: boolean;
 };
 
 export async function sendTransactionWithFeeRetry(
@@ -201,7 +204,7 @@ export async function sendTransactionWithFeeRetry(
   options?: SendTransactionOptions
 ): Promise<ccc.Hex> {
   let attempts = 0;
-  const maxAttempts = 3;
+  const maxAttempts = options?.allowFeeRetry === false ? 1 : 3;
   let feeRate = await calculateFeeRate(signer);
 
   while (attempts < maxAttempts) {

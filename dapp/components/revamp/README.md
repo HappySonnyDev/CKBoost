@@ -13,6 +13,13 @@ Figma source: [CKBoost Redesign](https://www.figma.com/design/nxsPSskHMjrxLYW8AW
 - `/revamp/profile`: connected wallet's profile, Campaigns, Activities and lazy Rewards history, reached from the wallet menu's My profile item.
 - `/revamp/profile/badges`: current protocol's claimed badges and explicit eligibility/loading/empty/error states.
 - `/revamp/admin`: current platform Admin's Overview, period metrics, pending actions, per-asset funding and recorded activity.
+- `/revamp/admin/campaigns`: platform campaign list, filters, approval and read-only campaign/quest details.
+- `/revamp/admin/users`: users, verified provenance, role changes and manual verification.
+- `/revamp/admin/tipping`: proposals, detail, new proposal, pool funding and independent settings.
+- `/revamp/admin/rewards`: achievement provenance, leaderboard periods and activity bonus settings.
+- `/revamp/tipping/[id]`: current Admin or verified current Tip Approver's detail view; no Admin management rights are implied.
+- `/revamp/testnet-admin-upgrade`: explicit QA Registry two-stage operator, with durable signed receipts and separate broadcast/confirmation actions.
+- `/revamp/testnet-admin-financial-upgrade`: read-only review of pinned financial candidates and an unsigned code proposal; never signs or broadcasts.
 
 The `(legacy)` route group owns the original Nextra layout and page map; its URLs remain unchanged. The `/revamp` layout does not import that shell or construct its page map. The root keeps one shared wallet/query instance while route-specific business providers load on demand. The new subtree is hidden from legacy navigation and marked noindex. The existing homepage is not replaced.
 
@@ -56,10 +63,18 @@ Run `./node_modules/.bin/tsc --noEmit --incremental false` separately from `NEXT
 
 Browser acceptance compares the supplied desktop frames and checks narrow layouts, Light/Dark, filters and direct-route access. Wallet-signing and on-chain permission behavior require the corresponding contract tests and an upgraded test deployment; no real wallet transaction is executed as part of visual QA.
 
-## Admin Overview implementation
+## Five-module Admin implementation
 
-The finalized Admin Overview implementation and remaining capability gaps are
-documented in [the admin implementation notes](../../lib/revamp/admin-README.md).
+The current five-module delivery, exact candidate code pins, tests, pending
+chain activation, data-preservation rules and upgrade order are documented in
+[the 2026-11-25 delivery record](../../../docs/revamp-admin-delivery-2026-11-25.md).
+The earlier [Overview notes](../../lib/revamp/admin-README.md) describe its read
+architecture. New role/approval/settings writes fail closed outside the exact
+isolated QA protocol. Registry-backed manual verification/periods and the new
+financial rules remain unavailable until the corresponding confirmed code,
+state, protocol configuration and explicit local runtime all match. The
+committed default QA v3 profile is unchanged; a build alone does not activate
+these capabilities.
 
 ## Personal profile implementation
 

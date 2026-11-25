@@ -1,0 +1,36 @@
+[package]
+name = "ckboost-admin-registry"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Independently buildable: no regeneration or change to the legacy workspace.
+[workspace]
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "ckboost-admin-registry"
+path = "src/main.rs"
+required-features = ["onchain"]
+test = false
+bench = false
+
+[dependencies]
+ckb-std = { version = "=0.16.4", default-features = false, features = ["allocator", "ckb-types", "dummy-atomic"], optional = true }
+blake2b-ref = { version = "=0.3.1", default-features = false, optional = true }
+ckb-testtool = { version = "=0.15.1", optional = true }
+
+[features]
+default = []
+onchain = ["dep:ckb-std", "dep:blake2b-ref"]
+vm-tests = ["dep:ckb-testtool"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+overflow-checks = true
+strip = "symbols"

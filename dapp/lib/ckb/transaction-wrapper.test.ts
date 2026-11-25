@@ -25,6 +25,13 @@ jest.mock("@/lib/pending-transactions", () => ({
 
 import { sendTransactionWithFeeRetry } from "./transaction-wrapper";
 
+it("keeps reviewed Admin submissions to one wallet prompt even for a fee rejection",async()=>{
+  const tx={outputs:[],outputsData:[],inputs:[],witnesses:[],addCellDepsOfKnownScripts:jest.fn().mockResolvedValue(undefined),completeInputsByCapacity:jest.fn().mockResolvedValue(undefined),completeFeeBy:jest.fn().mockResolvedValue(undefined),copy:jest.fn(),clone:jest.fn(),toBytes:jest.fn(()=>new Uint8Array(1000))};tx.clone.mockReturnValue(tx);
+  const signer={client:{getFeeRate:jest.fn().mockResolvedValue(1000)},getRecommendedAddressObj:jest.fn().mockResolvedValue({script:{codeHash:"0x1",hashType:"type",args:"0x2"}}),prepareTransaction:jest.fn(async value=>value),sendTransaction:jest.fn().mockRejectedValue(new Error("PoolRejectedTransactionByMinFeeRate: requiring a transaction fee of at least 2715 shannons"))};
+  await expect(sendTransactionWithFeeRetry(signer as never,tx as never,{allowFeeRetry:false})).rejects.toThrow(/after 1 attempts/);
+  expect(signer.sendTransaction).toHaveBeenCalledTimes(1);expect(tx.completeFeeBy).toHaveBeenCalledTimes(1);
+});
+
 it("keeps an exact corrected fee rate across the 2 KB boundary", async () => {
   const tx = {
     outputs: [],

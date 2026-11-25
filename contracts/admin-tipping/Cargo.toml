@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = ["policy", "tip-type", "funding-lock", "protocol-lock"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = false
+panic = "abort"
+overflow-checks = true
+debug = true

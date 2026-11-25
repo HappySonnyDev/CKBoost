@@ -1,0 +1,348 @@
+{
+  "schema": "ckboost-admin-tipping-release-candidates/v1",
+  "createdAt": "2026-11-25T07:15:36.040Z",
+  "status": "reviewed-local-candidates-not-deployed",
+  "deployed": false,
+  "release": {
+    "releaseId": "ckboost-admin-tipping-v1-registry-97e23b14",
+    "protocolTypeHash": "0x4eacaf9b1a120d2bfd99f26fcedfdcfe6ef116484e9b478b0a104a872316e034",
+    "registryTypeHash": "0x97e23b14d33e0445c1eac09f1948e2c3652547bfbb7fb7db56978f48baff9690",
+    "dataHashes": {
+      "tippingType": "0x82dfcecb9d7e2ed2c0407a92fbdb0fc793875b747b05510711a9f4d5ef4f7049",
+      "fundingLock": "0x62a328ce7a7d0ff273d7696c4bdc43254dd1cb611fdf94fbc2ec3c71f16cc389",
+      "protocolLock": "0xab9aef1ecc866c6d2cca7957b95930fdc4ec11212279796f49517d65db13b649"
+    },
+    "byteLengths": {
+      "tippingType": 162600,
+      "fundingLock": 107184,
+      "protocolLock": 214056
+    }
+  },
+  "registryAnchor": {
+    "status": "reviewed-unsigned-plan-not-deployed",
+    "typeScript": {
+      "codeHash": "0x12a5aa7950a17c8b11d28fdffad7c7cdf699811291437ad87826b422392e39d5",
+      "hashType": "type",
+      "args": "0x980c906dab1f1198e9cb615ac321cb69ac703945c5983de9e4b4c40139ea778c4eacaf9b1a120d2bfd99f26fcedfdcfe6ef116484e9b478b0a104a872316e034"
+    },
+    "typeHash": "0x97e23b14d33e0445c1eac09f1948e2c3652547bfbb7fb7db56978f48baff9690",
+    "sourcePlan": "work/audit/admin-2026-11-25/registry/unsigned-plan-2026-11-25T06-58-12.093Z.json"
+  },
+  "artifacts": {
+    "tippingType": {
+      "stripped": {
+        "archiveFile": "stripped/ckboost-tipping-type-qa-candidate",
+        "byteLength": 162600,
+        "dataHash": "0x82dfcecb9d7e2ed2c0407a92fbdb0fc793875b747b05510711a9f4d5ef4f7049",
+        "sha256": "eba1eef5641ec0668df421c072b3914a2de5b9194cf5c7a640b1e5cae6c31199"
+      },
+      "debug": {
+        "archiveFile": "debug/ckboost-tipping-type-qa-candidate",
+        "byteLength": 4276264,
+        "dataHash": "0xc62b9c57108a8b5f398feadd04e33a62f23f8cf169196d34eedc3f1b91b4f722",
+        "sha256": "881e78f80bdd040bb09c814ef8a5caa1a62c01cdf5f94103446ed49fda253147"
+      }
+    },
+    "fundingLock": {
+      "stripped": {
+        "archiveFile": "stripped/ckboost-funding-lock-qa-candidate",
+        "byteLength": 107184,
+        "dataHash": "0x62a328ce7a7d0ff273d7696c4bdc43254dd1cb611fdf94fbc2ec3c71f16cc389",
+        "sha256": "e43ba51049c18492c208477bc9817f602c1d4fb397be258cdd9157235ce49e4c"
+      },
+      "debug": {
+        "archiveFile": "debug/ckboost-funding-lock-qa-candidate",
+        "byteLength": 3134744,
+        "dataHash": "0xc1feb649e815d9d432015c5ff92908199c697f9391afbe49fcbe7a860966c016",
+        "sha256": "0e5c8e2b168532b1e3b2831701ddd56216501c255c567129c6ca915a0770ea5f"
+      }
+    },
+    "protocolLock": {
+      "stripped": {
+        "archiveFile": "stripped/ckboost-protocol-lock-qa-candidate",
+        "byteLength": 214056,
+        "dataHash": "0xab9aef1ecc866c6d2cca7957b95930fdc4ec11212279796f49517d65db13b649",
+        "sha256": "1f5071f6b97ac681acbd59a1ef9320fc798fc85e430ddeb1ab829c091f0f24f9"
+      },
+      "debug": {
+        "archiveFile": "debug/ckboost-protocol-lock-qa-candidate",
+        "byteLength": 5258440,
+        "dataHash": "0x3f49d40a56c29ed0c33d94060bb899161bb42e35fbafb42452fefceb1505eebc",
+        "sha256": "24c4c2940d83875c363d86bd42f4a2c574aaba8196340dddd09f7fd29a4698cc"
+      }
+    }
+  },
+  "sourceFingerprintSha256": "c5690d8f5bf06aea6785670003b3f491dcdb4e6691be15ac7578a340cc10864c",
+  "sourceFingerprintDefinition": "Sorted SHA256 of Rust/Cargo/schema inputs listed here; release-pins.mjs and this derived manifest are excluded to avoid a circular fingerprint.",
+  "sourceInputs": [
+    {
+      "path": "contracts/admin-registry/src/lib.rs",
+      "sha256": "5bb6ecaecc7f03b87ed4df596d014dab6b8a7910ecaaf1a7f52189ecfdf620a9"
+    },
+    {
+      "path": "contracts/admin-registry/src/main.rs",
+      "sha256": "88de20c5577ce8feb1e1087b460f1d61775eb88fed08513aff396b32bd1d95ae"
+    },
+    {
+      "path": "contracts/admin-registry/src/onchain.rs",
+      "sha256": "7fa1d6693c6a297f6bfffbd0a83443adc54c05c64cf0b022386fb071d90e31a6"
+    },
+    {
+      "path": "contracts/admin-registry/src/protocol.rs",
+      "sha256": "f7f6beac3f23a80020b9a28e554d1fc4ce4c1b558e7a115847aab8020d584db0"
+    },
+    {
+      "path": "contracts/admin-registry/src/registry_policy.rs",
+      "sha256": "7a60ff7d95eea4d2161385055039bcc5e56d99a3fffa8b9d2ba1c9162a637f91"
+    },
+    {
+      "path": "contracts/admin-tipping/Cargo.lock",
+      "sha256": "56f5c85786caec7491556c144804c1f1e681fe98a033a2c6e45bf6a311b9d446"
+    },
+    {
+      "path": "contracts/admin-tipping/Cargo.toml",
+      "sha256": "ecbd2ba0bd60679705b749f3f9f94ecf695a9624898bb5e6c291da20f1271260"
+    },
+    {
+      "path": "contracts/admin-tipping/funding-lock/Cargo.toml",
+      "sha256": "dce30d490429ea433ce5ae8de60a6e0e73addc9cc2bd660b2bf2413da3f606e8"
+    },
+    {
+      "path": "contracts/admin-tipping/funding-lock/src/main.rs",
+      "sha256": "4bc9ac1648fa0feee4f98575fc6cbd99b7fcd29717c81ddd0771dec7a8e5b549"
+    },
+    {
+      "path": "contracts/admin-tipping/policy/build.rs",
+      "sha256": "ddafe9ea3d5b5307262a79db7a45608466b19fe29b5bfe9a9ee1f9ef85c8969b"
+    },
+    {
+      "path": "contracts/admin-tipping/policy/Cargo.toml",
+      "sha256": "67a51b85209eeaf17b53f85abbd824fc1f18bc19702709b715fc33f88a350f18"
+    },
+    {
+      "path": "contracts/admin-tipping/policy/src/lib.rs",
+      "sha256": "1f266ecce3106ab6aaa558bedb86420ce79ecccdffcbe6e1c1d7dc6f72447f53"
+    },
+    {
+      "path": "contracts/admin-tipping/policy/src/onchain.rs",
+      "sha256": "0ca5d2ffe76f894c5930a81e182d388c918521fec024a8f80d93341632e0c08e"
+    },
+    {
+      "path": "contracts/admin-tipping/policy/tests/policy.rs",
+      "sha256": "71a23c5fd6daa86916158cf75154d9e31e4ee14a1343202a6a60e092a233bc44"
+    },
+    {
+      "path": "contracts/admin-tipping/policy/tests/vm_campaign_funding.rs",
+      "sha256": "880df2b448f1525c5c037c5ee90b67fb433db535e993d664ab4e30a699019877"
+    },
+    {
+      "path": "contracts/admin-tipping/policy/tests/vm_finance.rs",
+      "sha256": "19ef288502a4264082ba041a0a21d10c09ecf2773f2747ad5e4620dc97d07a56"
+    },
+    {
+      "path": "contracts/admin-tipping/protocol-lock/Cargo.toml",
+      "sha256": "463f065f6d60b7bbcf22bd5225532c95ada2e956d2632ceb16b5950b7e55aeb6"
+    },
+    {
+      "path": "contracts/admin-tipping/protocol-lock/src/fallback.rs",
+      "sha256": "a1f5741196e6ea5a826b72124a09af3204be12dac5e66679d9d028bbf9d6d835"
+    },
+    {
+      "path": "contracts/admin-tipping/protocol-lock/src/lib.rs",
+      "sha256": "da81734c4322c9d76a47350fda6d3e262bdce72fa662cd036b5fac673f17f461"
+    },
+    {
+      "path": "contracts/admin-tipping/protocol-lock/src/main.rs",
+      "sha256": "d0f90379456967d4d5f85b234b80a30609f6491c68b2515516ab760f0f8a850a"
+    },
+    {
+      "path": "contracts/admin-tipping/protocol-lock/src/modules.rs",
+      "sha256": "0ba9969f10496e517d1706101cbb1efdea47efc4bbe86f05bef6bb5a16545338"
+    },
+    {
+      "path": "contracts/admin-tipping/protocol-lock/src/recipes.rs",
+      "sha256": "36c8775069b9448547fd239c9cd8d06bc626dbf778fb4e873050c6cb2ec3c975"
+    },
+    {
+      "path": "contracts/admin-tipping/protocol-lock/src/ssri.rs",
+      "sha256": "b55c449ca8c678e07069387bc5ce3673ae11bda07394a72c32a61f53b741a8a6"
+    },
+    {
+      "path": "contracts/admin-tipping/tip-type/Cargo.toml",
+      "sha256": "6cf3db03a0509bf494c9cee12f3bd5898e9386a6360ab7b7a5ddd7045e58caf4"
+    },
+    {
+      "path": "contracts/admin-tipping/tip-type/src/fallback.rs",
+      "sha256": "a6b217b68a9d48893a6e1bde6ed7e6435535ff003c88bb32b8770cee24f8d7a5"
+    },
+    {
+      "path": "contracts/admin-tipping/tip-type/src/lib.rs",
+      "sha256": "b7f9c6d7d598e700a41eaac5fb58e310c6661a4adeab3da1adb1d5c1b7c42783"
+    },
+    {
+      "path": "contracts/admin-tipping/tip-type/src/main.rs",
+      "sha256": "d85822e0db09beaa19062a6a9d2873b04e6fcf9cbcd1d11728e61351dfc3b773"
+    },
+    {
+      "path": "contracts/admin-tipping/tip-type/src/modules.rs",
+      "sha256": "ac85fefad5f0c54256bb76dc89eff4acbda7a7a727ce72f06d61e4970aee6ebf"
+    },
+    {
+      "path": "contracts/admin-tipping/tip-type/src/recipes.rs",
+      "sha256": "b9747dbe63fa03de756f10e704181683c2e34be208525bf041f659fe36056b08"
+    },
+    {
+      "path": "contracts/admin-tipping/tip-type/src/ssri.rs",
+      "sha256": "bb51470e421d307dbc66a80d1cae423c7dc1dac7199d8d88ba38097dcb3a6e27"
+    },
+    {
+      "path": "contracts/libs/ckboost-shared/build.rs",
+      "sha256": "103c876774e94aeef05190d630ce0cbe07fbd61218161733427934c7babd1728"
+    },
+    {
+      "path": "contracts/libs/ckboost-shared/Cargo.toml",
+      "sha256": "f592d618c9090c3150becdf252cb77aa5d84bee81e6295a9988eed1a0e525504"
+    },
+    {
+      "path": "contracts/libs/ckboost-shared/src/campaign_authorization.rs",
+      "sha256": "a28c96c691d49d4088608e0ae2c132efa05ecaf19e2ba505106b5ab317956c0d"
+    },
+    {
+      "path": "contracts/libs/ckboost-shared/src/cell_collector.rs",
+      "sha256": "6897070a779fb940cd51da079eb83d2196290ed7ad48118f069fd844993a71c9"
+    },
+    {
+      "path": "contracts/libs/ckboost-shared/src/error.rs",
+      "sha256": "c4e3c6e017f68bf19513197350b5e155628fe17d0f015e6884e77d3fe2298f38"
+    },
+    {
+      "path": "contracts/libs/ckboost-shared/src/generated/ckboost.rs",
+      "sha256": "12e7b1b3ec773c1eb570ce205a7fd065258d4d443feaae914d299ee235d99a3d"
+    },
+    {
+      "path": "contracts/libs/ckboost-shared/src/generated/mod.rs",
+      "sha256": "6e6cde7c9eac6d0f7f2b275356837b1cb0d17b182897d47ec8aa2d6f4a0f020d"
+    },
+    {
+      "path": "contracts/libs/ckboost-shared/src/known_script.rs",
+      "sha256": "9a6a915146688b07df83eb144a277173ffd39238fb4cfa520b563a5f6bcc4cb7"
+    },
+    {
+      "path": "contracts/libs/ckboost-shared/src/lib.rs",
+      "sha256": "0b7de9442329a622ebe3a4c65e0e2f752b636ec896bb72a5731cfaf2b9e8235a"
+    },
+    {
+      "path": "contracts/libs/ckboost-shared/src/protocol_data.rs",
+      "sha256": "3667ceaaf1a9493686cb79fac69409199c31d6f8779a2df4e2f3474cf4328717"
+    },
+    {
+      "path": "contracts/libs/ckboost-shared/src/ssri.rs",
+      "sha256": "eef08e52e564eceb429c121bb3427c00945b7528b9136e6db893a1212d2d7ad9"
+    },
+    {
+      "path": "contracts/libs/ckboost-shared/src/transaction_context.rs",
+      "sha256": "7f79c718e7adc15ffe92d40cb74e63b074c0ea72cdbc08d54876c5f9069b535a"
+    },
+    {
+      "path": "contracts/libs/ckboost-shared/src/type_id.rs",
+      "sha256": "227652323893b6d111fcfa5a7baf9ddda70c2ec50cc7cd6b4cff9bb475965a00"
+    },
+    {
+      "path": "contracts/libs/ckboost-shared/src/types.rs",
+      "sha256": "8e89a741634ea5a6b3d30869d012231373a1634d980088c59ff42fd45afd2706"
+    },
+    {
+      "path": "contracts/libs/ckboost-shared/types.rs",
+      "sha256": "03fd494d848ce460561394e76cba4fc85633a64c84f42554d205a22b4e593877"
+    },
+    {
+      "path": "schemas/ckboost.mol",
+      "sha256": "b8efca3984968de6e68a1009c96be46b9e62d53cc24a75c008c3445ac35f96f7"
+    }
+  ],
+  "pinsFile": "contracts/admin-tipping/release-pins.mjs",
+  "pinsSha256": "1fa966096f424da812402eb926eca0dfe182aaef68f9089d0b7238f4b7634fd8",
+  "build": {
+    "target": "riscv64imac-unknown-none-elf",
+    "rustc": "1.89.0 (29483883e 2025-08-04)",
+    "cargo": "1.89.0 (c24e10642 2025-06-23)",
+    "cCompiler": "existing riscv-clang wrapper + Zig0.14.1",
+    "optLevel": "s",
+    "lto": true,
+    "codegenUnits": 1,
+    "overflowChecks": true,
+    "panic": "abort",
+    "targetFeatures": "+zba,+zbb,+zbc,+zbs,-a",
+    "stripped": {
+      "debugInfo": false,
+      "strip": "symbols"
+    },
+    "debug": {
+      "debugInfo": true,
+      "strip": "none"
+    },
+    "protocolLockFeature": "qa-admin-tipping",
+    "registryCompileEnv": "CKBOOST_ADMIN_REGISTRY_TYPE_HASH",
+    "registryCompileValue": "0x97e23b14d33e0445c1eac09f1948e2c3652547bfbb7fb7db56978f48baff9690",
+    "locked": true,
+    "offline": true
+  },
+  "tests": {
+    "nativePolicy": 8,
+    "tipFinanceVm": 9,
+    "campaignFundingVm": 3,
+    "totalTests": 20,
+    "vmScenarios": 27,
+    "log": "work/audit/admin-2026-11-25/tipping-candidate/actual-anchor-tests.log",
+    "logSha256": "eec079c8b2892773138572ba17ba5d89a92bae25f7b56a2998879cd5fdc3afed",
+    "scenarios": [
+      "wrong Funding namespace cannot borrow a valid campaign input: Err(Error { kind: Script, inner: TransactionScriptError { source: Inputs[2].Lock, cause: ValidationFailure: see error code 1 on page https://nervosnetwork.github.io/ckb-script-error-codes/by-type-hash/af3bb73a677bafafda6fad06afd8159f573c97098f59fe1e2f1f313c47907cba.html#1 } })",
+      "must preserve current Campaign exact funding deduction rules: Err(Error { kind: Script, inner: TransactionScriptError { source: Inputs[1].Type, cause: ValidationFailure: see error code 76 on page https://nervosnetwork.github.io/ckb-script-error-codes/by-type-hash/9004d12f500e558df19c14e08907e014dbfc50ae249500bb5c389f883a1487d2.html#76 } })",
+      "new slim Funding + current9004 Campaign/e91 Lock/fcb4 Points; exact100CKB reward: Ok(2899517)",
+      "unassigned foreign actor cannot unlock campaign funds: Err(Error { kind: Script, inner: TransactionScriptError { source: Inputs[1].Lock, cause: ValidationFailure: see error code 58 on page https://nervosnetwork.github.io/ckb-script-error-codes/by-type-hash/e91b5a78463c293318331c21d372e031eb9ffad87b379fbe0563222fcdd28815.html#58 } })",
+      "fresh Organizer tip creation: Ok(360240)",
+      "signed expiry boundary: Err(Error { kind: Script, inner: TransactionScriptError { source: Inputs[0].Lock, cause: ValidationFailure: see error code 58 on page https://nervosnetwork.github.io/ckb-script-error-codes/by-type-hash/e91b5a78463c293318331c21d372e031eb9ffad87b379fbe0563222fcdd28815.html#58 } })",
+      "NoNetSpend: Err(Error { kind: Script, inner: TransactionScriptError { source: Inputs[0].Lock, cause: ValidationFailure: see error code 58 on page https://nervosnetwork.github.io/ckb-script-error-codes/by-type-hash/e91b5a78463c293318331c21d372e031eb9ffad87b379fbe0563222fcdd28815.html#58 } })",
+      "revoked Approver: Err(Error { kind: Script, inner: TransactionScriptError { source: Inputs[0].Lock, cause: ValidationFailure: see error code 58 on page https://nervosnetwork.github.io/ckb-script-error-codes/by-type-hash/e91b5a78463c293318331c21d372e031eb9ffad87b379fbe0563222fcdd28815.html#58 } })",
+      "WrongMint: Err(Error { kind: Script, inner: TransactionScriptError { source: Inputs[0].Lock, cause: ValidationFailure: see error code 58 on page https://nervosnetwork.github.io/ckb-script-error-codes/by-type-hash/e91b5a78463c293318331c21d372e031eb9ffad87b379fbe0563222fcdd28815.html#58 } })",
+      "first platform Admin approval: Ok(858733)",
+      "foreign unpinned Registry: Err(Error { kind: Script, inner: TransactionScriptError { source: Inputs[2].Lock, cause: ValidationFailure: see error code 1 on page https://nervosnetwork.github.io/ckb-script-error-codes/by-type-hash/af3bb73a677bafafda6fad06afd8159f573c97098f59fe1e2f1f313c47907cba.html#1 } })",
+      "NonemptyActor: Err(Error { kind: Script, inner: TransactionScriptError { source: Inputs[0].Lock, cause: ValidationFailure: see error code 58 on page https://nervosnetwork.github.io/ckb-script-error-codes/by-type-hash/e91b5a78463c293318331c21d372e031eb9ffad87b379fbe0563222fcdd28815.html#58 } })",
+      "nonAdmin cannot give first approval: Err(Error { kind: Script, inner: TransactionScriptError { source: Inputs[0].Lock, cause: ValidationFailure: see error code 58 on page https://nervosnetwork.github.io/ckb-script-error-codes/by-type-hash/e91b5a78463c293318331c21d372e031eb9ffad87b379fbe0563222fcdd28815.html#58 } })",
+      "current Admin subsequent approval override: Ok(2917398)",
+      "RedirectUdt: Err(Error { kind: Script, inner: TransactionScriptError { source: Inputs[2].Lock, cause: ValidationFailure: see error code 1 on page https://nervosnetwork.github.io/ckb-script-error-codes/by-type-hash/af3bb73a677bafafda6fad06afd8159f573c97098f59fe1e2f1f313c47907cba.html#1 } })",
+      "duplicate same-full-script UDT definitions deliver exactly2^64+5: Ok(3038575)",
+      "independent Approver final grant: C+100CKB/+5UDT/+1actualfcb4Point: Ok(2997169)",
+      "nonAdmin cannot give first approval: Err(Error { kind: Script, inner: TransactionScriptError { source: Inputs[0].Lock, cause: ValidationFailure: see error code 58 on page https://nervosnetwork.github.io/ckb-script-error-codes/by-type-hash/e91b5a78463c293318331c21d372e031eb9ffad87b379fbe0563222fcdd28815.html#58 } })",
+      "Never0 candidate policy: Ok(2997106)",
+      "WrongUdtAmount: Err(Error { kind: Script, inner: TransactionScriptError { source: Inputs[2].Lock, cause: ValidationFailure: see error code 1 on page https://nervosnetwork.github.io/ckb-script-error-codes/by-type-hash/af3bb73a677bafafda6fad06afd8159f573c97098f59fe1e2f1f313c47907cba.html#1 } })",
+      "MissingTime: Err(Error { kind: Script, inner: TransactionScriptError { source: Inputs[0].Lock, cause: ValidationFailure: see error code 58 on page https://nervosnetwork.github.io/ckb-script-error-codes/by-type-hash/e91b5a78463c293318331c21d372e031eb9ffad87b379fbe0563222fcdd28815.html#58 } })",
+      "WrongOutputRef: Err(Error { kind: Script, inner: TransactionScriptError { source: Inputs[0].Lock, cause: ValidationFailure: see error code 58 on page https://nervosnetwork.github.io/ckb-script-error-codes/by-type-hash/e91b5a78463c293318331c21d372e031eb9ffad87b379fbe0563222fcdd28815.html#58 } })",
+      "Mutation: Err(Error { kind: Script, inner: TransactionScriptError { source: Inputs[0].Lock, cause: ValidationFailure: see error code 58 on page https://nervosnetwork.github.io/ckb-script-error-codes/by-type-hash/e91b5a78463c293318331c21d372e031eb9ffad87b379fbe0563222fcdd28815.html#58 } })",
+      "TipCapacityDrain: Err(Error { kind: Script, inner: TransactionScriptError { source: Inputs[2].Lock, cause: ValidationFailure: see error code 1 on page https://nervosnetwork.github.io/ckb-script-error-codes/by-type-hash/af3bb73a677bafafda6fad06afd8159f573c97098f59fe1e2f1f313c47907cba.html#1 } })",
+      "PoolCapacityDrain: Err(Error { kind: Script, inner: TransactionScriptError { source: Inputs[2].Lock, cause: ValidationFailure: see error code 1 on page https://nervosnetwork.github.io/ckb-script-error-codes/by-type-hash/af3bb73a677bafafda6fad06afd8159f573c97098f59fe1e2f1f313c47907cba.html#1 } })",
+      "CkbWrongRecipient: Err(Error { kind: Script, inner: TransactionScriptError { source: Inputs[0].Lock, cause: ValidationFailure: see error code 58 on page https://nervosnetwork.github.io/ckb-script-error-codes/by-type-hash/e91b5a78463c293318331c21d372e031eb9ffad87b379fbe0563222fcdd28815.html#58 } })",
+      "UnacceptedUdt: Err(Error { kind: Script, inner: TransactionScriptError { source: Inputs[0].Lock, cause: ValidationFailure: see error code 58 on page https://nervosnetwork.github.io/ckb-script-error-codes/by-type-hash/e91b5a78463c293318331c21d372e031eb9ffad87b379fbe0563222fcdd28815.html#58 } })"
+    ]
+  },
+  "compatibility": {
+    "unchangedPoints": {
+      "typeHash": "0xfcb4b762e3222b603771811b8abe6b054a480a0f5d8011fd9fff266d72189a5e",
+      "byteLength": 138784,
+      "dataHash": "0xb61c56ff5d0b9d036f0db63d67ec9cf9d8cb62a20d9de1830659b92261bb150b"
+    },
+    "unchangedCampaign": {
+      "typeHash": "0x9004d12f500e558df19c14e08907e014dbfc50ae249500bb5c389f883a1487d2",
+      "byteLength": 256040,
+      "dataHash": "0xb8f0ebe8ad9d28ed1c9018fceeeee8e52bea23863dc39d1a4213abe7422ffa33"
+    },
+    "campaignFunding": "Lightweight exact input Campaign namespace; actual unchanged CampaignType + QA ProtocolLock still execute full role/deduction/reward rules. Actual100CKB+1Point claimable-pool output VM and valid-structure wrong deduction negative pass."
+  },
+  "limits": [
+    "Registry and fresh Tip/Funding code have not been deployed; no protocol config/runtime activation, signing or broadcast was performed.",
+    "Fresh Tip/Funding TypeIDs are required. Never upgrade the shared6bc4 Tip/4098 Funding/fcb4 Points code cells.",
+    "VM wallet and accepted-UDT fixtures use ALWAYS_SUCCESS, not live wallet signatures or a real UDT implementation. Actual fcb4 Points and9004 Campaign ELFs are executed.",
+    "Expiry is a signed application-time declaration plus required fresh-client policy, not a consensus current-clock upper bound.",
+    "Activation must independently prove Registry identity, code/data bytes, QA ProtocolLock upgrade and exact current protocol/paired-code configuration, and inventory empty old QA Tip/Funding namespaces."
+  ]
+}

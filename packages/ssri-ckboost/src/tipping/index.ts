@@ -58,7 +58,10 @@ export class Tipping extends ssri.Trait {
   async updateTipping(
     signer: ccc.Signer,
     tippingData: TippingDataLike,
-    tx?: ccc.Transaction
+    tx?: ccc.Transaction,
+    /** Only the independently reviewed Registry-aware Tip VM accepts the
+     * third SSRI argument. Legacy callers keep their original two arguments. */
+    declaredAtMs?: bigint
   ): Promise<ssri.ExecutorResponse<ccc.Transaction>> {
     if (!this.executor) {
       throw new Error("Executor required for SSRI operations");
@@ -78,10 +81,13 @@ export class Tipping extends ssri.Trait {
     const tippingDataHex = ccc.hexFrom(tippingDataBytes);
     const txHex = ccc.hexFrom(txReq.toBytes());
 
+    if (declaredAtMs !== undefined && (declaredAtMs <= 0n || declaredAtMs > 0xffffffffffffffffn)) {
+      throw new Error("A V2 tipping time declaration must be a positive Uint64 millisecond value");
+    }
     const res = await this.executor.runScript(
       this.code,
       "CKBoostTipping.update_tipping",
-      [txHex, tippingDataHex],
+      [txHex, tippingDataHex, ...(declaredAtMs === undefined ? [] : [ccc.hexFrom(ccc.numLeToBytes(declaredAtMs, 8))])],
       { script: this.script }
     );
 
@@ -132,6 +138,10 @@ export class Tipping extends ssri.Trait {
             tippingCellOutput,
             ccc.hexFrom(TippingData.encode(tippingData))
           );
+        }
+        if (declaredAtMs !== undefined) {
+          const preserved = resTx.res.outputs.find(output => output.type?.eq(cell.cellOutput.type!));
+          if (preserved && preserved.capacity < cell.cellOutput.capacity) preserved.capacity = cell.cellOutput.capacity;
         }
       }
 

@@ -1,0 +1,17 @@
+import {ccc} from "@ckb-ccc/connector-react";
+import {CampaignData,ConnectedTypeID,ProtocolData} from "ssri-ckboost/types";
+import {adminUsersFixture,userHash as h} from "./admin-users-fixtures";
+export function adminCampaignsFixture(){const base=adminUsersFixture(),campaignId=h("c"),now=1800000000000;const asset={points_amount:0,ckb_amount:0,nft_assets:[],udt_assets:[]};const quest={quest_id:1,metadata:{title:"Actual quest",short_description:"Required response",long_description:"",requirements:"",difficulty:1,time_estimate:5},rewards_on_completion:[],accepted_submission_user_type_ids:[],completion_deadline:1800100000,status:0,sub_tasks:[{id:1,title:"Proof",type:"text",description:"Explain the result",proof_required:"Text"}],points:1,completion_count:0};const campaignData={endorser_lock_hash:base.targetLock.hash(),staff_lock_hash_vec:[],created_at:1700000000,starting_time:1799900000,ending_time:1800100000,rules:["Actual rule"],status:0,participants_count:0,total_completions:0,metadata:{title:"Actual Campaign",short_description:"Actual summary",long_description:"# Actual body",image_url:"",total_rewards:asset,verification_requirements:[],last_updated:1700000000,categories:["Education"],difficulty:1},quests:[quest]};const campaignCell=ccc.Cell.from({outPoint:{txHash:h("d"),index:0},cellOutput:{capacity:100000000000n,lock:{codeHash:h("2"),hashType:"type",args:ccc.hexFrom(ConnectedTypeID.encode({type_id:base.targetLock.hash(),connected_key:base.scope.protocolHash}))},type:{codeHash:h("3"),hashType:"type",args:ccc.hexFrom(ConnectedTypeID.encode({type_id:campaignId,connected_key:base.scope.protocolHash}))}},outputData:ccc.hexFrom(CampaignData.encode(campaignData))});return{...base,campaignId,campaignData,campaignCell,campaign:{id:campaignId,cell:campaignCell,data:CampaignData.decode(campaignCell.outputData)},now};}
+
+/** Canonical synthetic parents and an actual protocol approval transition. */
+export function adminCampaignApprovalFixture(){
+ const base=adminCampaignsFixture();
+ const protocolParent=ccc.Transaction.from({inputs:[{previousOutput:{txHash:h("e"),index:0}}],outputs:[base.protocolCell.cellOutput],outputsData:[base.protocolCell.outputData]});
+ const actorParent=ccc.Transaction.from({inputs:[{previousOutput:{txHash:h("f"),index:0}}],outputs:[{capacity:10000000000n,lock:base.lock}],outputsData:["0x"]});
+ base.protocolCell=ccc.Cell.from({...base.protocolCell,outPoint:{txHash:protocolParent.hash(),index:0}});base.scope.protocolCell=base.protocolCell;
+ const actorCell=ccc.Cell.from({outPoint:{txHash:actorParent.hash(),index:0},cellOutput:actorParent.outputs[0],outputData:"0x"});
+ const approved=ProtocolData.decode(base.protocolCell.outputData);approved.campaigns_approved.push(base.campaignId);approved.last_updated=BigInt(base.now);
+ const transaction=(data=approved)=>ccc.Transaction.from({inputs:[{previousOutput:base.protocolCell.outPoint},{previousOutput:actorCell.outPoint}],outputs:[base.protocolCell.cellOutput,{capacity:9900000000n,lock:base.lock}],outputsData:[ccc.hexFrom(ProtocolData.encode(data)),"0x"]});
+ const parents=new Map<string,ccc.ClientTransactionResponse>([[protocolParent.hash(),{transaction:protocolParent,status:"committed",blockNumber:1n}as ccc.ClientTransactionResponse],[actorParent.hash(),{transaction:actorParent,status:"committed",blockNumber:2n}as ccc.ClientTransactionResponse]]);
+ return{...base,protocolParent,actorParent,actorCell,approved,transaction,parents};
+}

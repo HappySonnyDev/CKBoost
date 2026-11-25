@@ -29,8 +29,10 @@ export class ProtocolService {
   private client: ccc.Client;
   private signer?: ccc.Signer;
   private protocol?: Protocol;
+  private transactionOptions: {allowFeeRetry?:boolean};
 
-  constructor(clientOrSigner: ccc.Client | ccc.Signer) {
+  constructor(clientOrSigner: ccc.Client | ccc.Signer,transactionOptions:{allowFeeRetry?:boolean}={}) {
+    this.transactionOptions=transactionOptions;
     // Check if it's a signer (has getRecommendedAddress method)
     if ("getRecommendedAddress" in clientOrSigner) {
       this.signer = clientOrSigner as ccc.Signer;
@@ -144,7 +146,7 @@ export class ProtocolService {
     }
 
     // Complete fees and send transaction with automatic retry
-    const txHash = await sendTransactionWithFeeRetry(guardPrivilegedActorSigner(this.signer,actorLock.hash()), tx,{preserveOutputCapacityIndices:preserved});
+    const txHash = await sendTransactionWithFeeRetry(guardPrivilegedActorSigner(this.signer,actorLock.hash()), tx,{...this.transactionOptions,preserveOutputCapacityIndices:preserved});
 
     log.info("Protocol updated, tx:", txHash);
     return txHash;

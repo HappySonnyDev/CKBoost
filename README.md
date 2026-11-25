@@ -106,6 +106,12 @@ wallet, grant roles or sign transactions. See the
 [shared QA guide](dapp/components/revamp/README.md#shared-testnet-qa-setup)
 for identities, boundaries and the advanced multi-terminal workflow.
 
+The new five-module Admin workspace starts at `/revamp/admin`. Its implementation
+and pending, explicitly reviewed QA contract activation are recorded in the
+[Admin delivery notes](docs/revamp-admin-delivery-2026-11-25.md). Default startup
+continues to use the existing committed QA v3 profile; the new Registry and
+financial candidates are not deployed or enabled by startup.
+
 ### Advanced: original configuration
 
 Normal `pnpm dev`/`pnpm build` keep the original defaults. For that configuration,

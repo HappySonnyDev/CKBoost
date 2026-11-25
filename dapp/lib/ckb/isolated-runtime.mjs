@@ -1,6 +1,7 @@
 import { ccc } from "@ckb-ccc/core";
 import { ConnectedTypeID, ProtocolData } from "../../../packages/ssri-ckboost/dist/generated/ckboost.js";
 import { PERMISSION_REVIEW_RELEASES } from "./permissions-release-pins.mjs";
+import {deriveAdminUpgradedRuntime} from "./admin-upgrade-runtime.mjs";
 
 // Public immutable trust anchors. A regression test compares these with the
 // bootstrap module's seven source pins and the two reviewed release pins.
@@ -141,12 +142,20 @@ export function makeUpgradedIsolatedRuntimeConfig(baseV2,protocolLockUpgrade,cam
   const sources={...base.sources,parentProfileHash:base.profileHash,codeUpgradeManifests,effectiveProfile},profileHash=ccc.hashCkb(ccc.bytesFrom(canonical(sources),"utf8"));
   return freeze({...base,schema:"ckboost-isolated-testnet-runtime/v3",profileHash,current:{...base.current,testnet:{...base.current.testnet,...Object.fromEntries(upgraded.map(row=>[row.name,record(row)]))}},sources});
 }
+/** Offline derivation from the exact v3 lineage and independently confirmed
+ * Admin sources. The read-only confirmer establishes inclusion/current liveness;
+ * an imported manifest alone does not establish either fact. */
+export function makeAdminUpgradedIsolatedRuntimeConfig(baseV3,confirmedAdminBundle){
+  check(object(baseV3).schema==="ckboost-isolated-testnet-runtime/v3","Admin upgrades require the verified v3 parent");
+  return deriveAdminUpgradedRuntime(validateIsolatedRuntimeConfig(baseV3),confirmedAdminBundle);
+}
 export function validateIsolatedRuntimeConfig(value){
-  const v=object(value);check(["ckboost-isolated-testnet-runtime/v1","ckboost-isolated-testnet-runtime/v2","ckboost-isolated-testnet-runtime/v3"].includes(v.schema)&&v.network==="testnet","wrong runtime schema/network");
+  const v=object(value);check(["ckboost-isolated-testnet-runtime/v1","ckboost-isolated-testnet-runtime/v2","ckboost-isolated-testnet-runtime/v3","ckboost-isolated-testnet-runtime/v4"].includes(v.schema)&&v.network==="testnet","wrong runtime schema/network");
   const source=object(v.sources),base=makeIsolatedRuntimeConfig(source.protocolManifest,source.protocolCodeManifest,source.campaignCodeManifest,source.profile);
   const v2=v.schema==="ckboost-isolated-testnet-runtime/v1"?null:makeIndependentUserRuntimeConfig(base,source.userCodeDeploymentManifest);
-  const upgrades=v.schema==="ckboost-isolated-testnet-runtime/v3"?object(source.codeUpgradeManifests):null;
-  const expected=upgrades?makeUpgradedIsolatedRuntimeConfig(v2,upgrades.protocolLock,upgrades.campaignType):v2??base;
+  const upgrades=["ckboost-isolated-testnet-runtime/v3","ckboost-isolated-testnet-runtime/v4"].includes(v.schema)?object(source.codeUpgradeManifests):null;
+  const parent=upgrades?makeUpgradedIsolatedRuntimeConfig(v2,upgrades.protocolLock,upgrades.campaignType):v2??base;
+  const expected=v.schema==="ckboost-isolated-testnet-runtime/v4"?makeAdminUpgradedIsolatedRuntimeConfig(parent,source.adminUpgradeBundle):parent;
   check(same(v,expected),"runtime derived fields or profile hash changed");return expected;
 }
 /** Opt-in only. Missing/invalid data in QA mode never falls back to shared data. */
@@ -160,6 +169,8 @@ export function getIsolatedRuntime(env){
     NEXT_PUBLIC_PROTOCOL_TYPE_ARGS:process.env.NEXT_PUBLIC_PROTOCOL_TYPE_ARGS,
     NEXT_PUBLIC_SSRI_EXECUTOR_URL:process.env.NEXT_PUBLIC_SSRI_EXECUTOR_URL,
     NEXT_PUBLIC_CKB_RPC_URL:process.env.NEXT_PUBLIC_CKB_RPC_URL,
+    NEXT_PUBLIC_CKBOOST_ADMIN_REGISTRY:process.env.NEXT_PUBLIC_CKBOOST_ADMIN_REGISTRY,
+    NEXT_PUBLIC_CKBOOST_ADMIN_TIPPING:process.env.NEXT_PUBLIC_CKBOOST_ADMIN_TIPPING,
     NEXT_PUBLIC_CKBOOST_CURRENT_DEPLOYMENTS:process.env.NEXT_PUBLIC_CKBOOST_CURRENT_DEPLOYMENTS};
   const server=env.CKBOOST_ISOLATED_QA,client=env.NEXT_PUBLIC_CKBOOST_ISOLATED_QA;
   if(server!=="1"&&client!=="1")return null;
@@ -171,6 +182,7 @@ export function getIsolatedRuntime(env){
   check(env.NEXT_PUBLIC_SSRI_EXECUTOR_URL===config.executorUrl,"executor does not match runtime profile");
   check(env.NEXT_PUBLIC_CKB_RPC_URL===config.rpcUrl,"RPC does not match runtime profile");
   if(env.NEXT_PUBLIC_CKBOOST_CURRENT_DEPLOYMENTS){let current;try{current=JSON.parse(env.NEXT_PUBLIC_CKBOOST_CURRENT_DEPLOYMENTS);}catch{fail("current registry is not JSON");}check(same(current,config.current),"current registry disagrees with runtime profile");}
+  if(config.schema==="ckboost-isolated-testnet-runtime/v4")for(const[key,value]of[["NEXT_PUBLIC_CKBOOST_ADMIN_REGISTRY",config.adminRegistry],["NEXT_PUBLIC_CKBOOST_ADMIN_TIPPING",config.adminTipping]]){let actual;try{actual=JSON.parse(env[key]);}catch{fail("missing/invalid confirmed Admin capability manifest");}check(same(actual,value),"Admin capability manifest disagrees with confirmed runtime sources");}
   return config;
 }
-export function isolatedRuntimeEnvironment(value){const config=validateIsolatedRuntimeConfig(value);return{CKBOOST_ISOLATED_QA:"1",NEXT_PUBLIC_CKBOOST_ISOLATED_QA:"1",NEXT_PUBLIC_CKBOOST_ISOLATED_RUNTIME_PROFILE:JSON.stringify(config),NEXT_PUBLIC_CKBOOST_CURRENT_DEPLOYMENTS:JSON.stringify(config.current),NEXT_PUBLIC_CKB_NETWORK:"testnet",NEXT_PUBLIC_PROTOCOL_TYPE_ARGS:config.protocol.typeScript.args,NEXT_PUBLIC_CKB_RPC_URL:config.rpcUrl,NEXT_PUBLIC_CKB_INDEXER_URL:config.rpcUrl,NEXT_PUBLIC_SSRI_EXECUTOR_URL:config.executorUrl,CKBOOST_NEXT_DIST_DIR:`.next-isolated-${config.profileHash.slice(2,14)}`};}
+export function isolatedRuntimeEnvironment(value){const config=validateIsolatedRuntimeConfig(value);return{CKBOOST_ISOLATED_QA:"1",NEXT_PUBLIC_CKBOOST_ISOLATED_QA:"1",NEXT_PUBLIC_CKBOOST_ISOLATED_RUNTIME_PROFILE:JSON.stringify(config),NEXT_PUBLIC_CKBOOST_CURRENT_DEPLOYMENTS:JSON.stringify(config.current),NEXT_PUBLIC_CKBOOST_ADMIN_REGISTRY:config.adminRegistry?JSON.stringify(config.adminRegistry):"",NEXT_PUBLIC_CKBOOST_ADMIN_TIPPING:config.adminTipping?JSON.stringify(config.adminTipping):"",NEXT_PUBLIC_CKB_NETWORK:"testnet",NEXT_PUBLIC_PROTOCOL_TYPE_ARGS:config.protocol.typeScript.args,NEXT_PUBLIC_CKB_RPC_URL:config.rpcUrl,NEXT_PUBLIC_CKB_INDEXER_URL:config.rpcUrl,NEXT_PUBLIC_SSRI_EXECUTOR_URL:config.executorUrl,CKBOOST_NEXT_DIST_DIR:`.next-isolated-${config.profileHash.slice(2,14)}`};}

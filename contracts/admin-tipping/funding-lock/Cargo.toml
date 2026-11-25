@@ -1,0 +1,9 @@
+[package]
+name = "ckboost-funding-lock-qa-candidate"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+ckb-std = { version = "0.16.4", default-features = false, features = ["allocator", "ckb-types", "dummy-atomic"] }
+ckboost-admin-tipping-policy = { path = "../policy", features = ["onchain"] }

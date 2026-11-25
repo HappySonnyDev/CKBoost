@@ -17,7 +17,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isDiscovery = pathname === "/revamp";
   const isDesignSystem = pathname === "/revamp/design-system" || pathname.startsWith("/revamp/design-system/");
-  const isTestnetSetup = pathname === "/revamp/testnet-setup" || pathname.startsWith("/revamp/testnet-setup/");
+  const isTestnetSetup = ["/revamp/testnet-setup", "/revamp/testnet-code-upgrade", "/revamp/testnet-admin-upgrade", "/revamp/testnet-admin-financial-upgrade"].some(route => pathname === route || pathname.startsWith(`${route}/`));
   const isRevampBusiness = pathname.startsWith("/revamp/") && !isDesignSystem && !isTestnetSetup;
   const [queryClient] = useState(
     () =>

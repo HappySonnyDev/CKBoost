@@ -10,6 +10,8 @@ const createJestConfig = nextJest({
 const config = {
   coverageProvider: 'v8',
   testEnvironment: 'jsdom',
+  // Fixture factories live beside their suites but are not executable tests.
+  testMatch: ['**/?(*.)+(spec|test).[jt]s?(x)'],
   setupFiles: ['<rootDir>/test/current-deployment-env.cjs'],
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   moduleNameMapper: {

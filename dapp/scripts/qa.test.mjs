@@ -200,6 +200,28 @@ test('a failed rebuild invalidates the successful build receipt', async t => {
   assert.equal(f.calls.length, 2);
 });
 
+test('the exact legacy v3 environment safely adds only two empty capability keys and invalidates its old receipt', async t => {
+  const f = await fixture(t); await f.launcher.build();
+  const current = JSON.parse(await fs.readFile(f.paths.environment, 'utf8')), old = { ...current };
+  delete old.NEXT_PUBLIC_CKBOOST_ADMIN_REGISTRY; delete old.NEXT_PUBLIC_CKBOOST_ADMIN_TIPPING;
+  await fs.writeFile(f.paths.environment, serialize(old));
+  f.failBuild(); await assert.rejects(f.launcher.build(), /simulated failed build/);
+  assert.deepEqual(JSON.parse(await fs.readFile(f.paths.environment, 'utf8')), current);
+  assert.equal(current.NEXT_PUBLIC_CKBOOST_ADMIN_REGISTRY, ''); assert.equal(current.NEXT_PUBLIC_CKBOOST_ADMIN_TIPPING, '');
+  await assert.rejects(fs.stat(f.paths.receipt), { code: 'ENOENT' });
+});
+
+test('legacy environment migration rejects any other public value change and leaves old metadata intact', async t => {
+  const f = await fixture(t); await f.launcher.build();
+  const old = JSON.parse(await fs.readFile(f.paths.environment, 'utf8'));
+  delete old.NEXT_PUBLIC_CKBOOST_ADMIN_REGISTRY; delete old.NEXT_PUBLIC_CKBOOST_ADMIN_TIPPING;
+  old.NEXT_PUBLIC_CKB_RPC_URL = 'https://another.invalid/';
+  const previous = serialize(old), receipt = await fs.readFile(f.paths.receipt, 'utf8'); await fs.writeFile(f.paths.environment, previous);
+  await assert.rejects(f.launcher.build(), /Only the exact v3 addition/);
+  assert.equal(await fs.readFile(f.paths.environment, 'utf8'), previous); assert.equal(await fs.readFile(f.paths.receipt, 'utf8'), receipt);
+  assert.equal(f.calls.length, 1);
+});
+
 test('Node version and command parsing reject unsupported or override invocations', async () => {
   for (const version of ['20.19.0', '22.12.9', 'invalid']) assert.throws(() => requireSupportedNode(version), /Node.js 22.13/);
   for (const version of ['22.13.0', '22.19.0', '24.0.0']) assert.doesNotThrow(() => requireSupportedNode(version));

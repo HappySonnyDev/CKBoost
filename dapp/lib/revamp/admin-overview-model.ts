@@ -67,13 +67,13 @@ export function adminNeedActions(scope: ProfileReadScope, snapshot: AdminCurrent
   assertSnapshot(scope, snapshot);
   const approvedCampaigns = new Set(scope.protocol.campaigns_approved.map(hash));
   return [
-    ...snapshot.campaigns.filter(record => !approvedCampaigns.has(record.id)).map(record => ({id: record.id, type: "campaign" as const, title: record.data.metadata.title || "Untitled campaign", description: "Not in the current platform approval list. Review the campaign before approving.", at: profileTimestamp(record.data.created_at), actionLabel: "Review" as const, href: `/campaign-admin/${record.id}`})),
+    ...snapshot.campaigns.filter(record => !approvedCampaigns.has(record.id)).map(record => ({id: record.id, type: "campaign" as const, title: record.data.metadata.title || "Untitled campaign", description: "Not in the current platform approval list. Review the campaign before approving.", at: profileTimestamp(record.data.created_at), actionLabel: "Review" as const, href: `/revamp/admin/campaigns/${record.id}`})),
     // Platform inclusion is not equivalent to distribution: approved proposals
     // may still need endorsements. Review is a navigation action, never a claim
     // that this Admin can endorse again or that expiry/funding checks passed.
     ...snapshot.tippings.filter(record => record.data.status !== "granted").map(record => ({id: record.id, type: "tipping" as const, title: record.data.metadata.contribution_title || "Untitled tip proposal",
       description: `Recorded status: ${record.data.status}. ${record.data.supporter_lock_hashes.length} supporter record(s). ${record.data.supporter_lock_hashes.some(value => hash(value) === scope.lockHash) ? "This Admin has already supported it." : "This Admin is not recorded as a supporter."} Check its current endorsements, expiry and funding in the review page.`,
-      at: profileTimestamp(record.data.metadata.creation_timestamp), actionLabel: "Review" as const, href: `/tipping?tipping=${record.id}`})),
+      at: profileTimestamp(record.data.metadata.creation_timestamp), actionLabel: "Review" as const, href: `/revamp/admin/tipping/${record.id}`})),
   ].sort((a, b) => (b.at ?? 0) - (a.at ?? 0));
 }
 export function adminRecordedActivity(scope: ProfileReadScope, snapshot: AdminCurrentSnapshot): AdminActivityItem[] {
@@ -82,7 +82,7 @@ export function adminRecordedActivity(scope: ProfileReadScope, snapshot: AdminCu
   // or a complete ledger of historical transactions.
   return [
     ...snapshot.campaigns.map(record => ({id: `campaign:${record.id}`, kind: "campaign" as const, title: record.data.metadata.title || "Untitled campaign", description: "Campaign record · recorded last update", at: profileTimestamp(record.data.metadata.last_updated), href: `/revamp/campaign/${record.id}`})),
-    ...snapshot.tippings.map(record => ({id: `tipping:${record.id}`, kind: "tipping" as const, title: record.data.metadata.contribution_title || "Untitled tip proposal", description: record.data.status === "granted" ? "Tip record · recorded grant" : "Tip proposal record · recorded creation", at: profileTimestamp(record.data.status === "granted" ? record.data.granted_at : record.data.metadata.creation_timestamp), href: `/tipping?tipping=${record.id}`})),
+    ...snapshot.tippings.map(record => ({id: `tipping:${record.id}`, kind: "tipping" as const, title: record.data.metadata.contribution_title || "Untitled tip proposal", description: record.data.status === "granted" ? "Tip record · recorded grant" : "Tip proposal record · recorded creation", at: profileTimestamp(record.data.status === "granted" ? record.data.granted_at : record.data.metadata.creation_timestamp), href: `/revamp/admin/tipping/${record.id}`})),
   ].sort((a, b) => (b.at ?? 0) - (a.at ?? 0)).slice(0, 20);
 }
 export async function readAdminFunding(scope: ProfileReadScope, snapshot: AdminCurrentSnapshot, signal?: AbortSignal): Promise<AdminOverviewFunding> {

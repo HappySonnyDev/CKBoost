@@ -18,8 +18,18 @@ import { sendTransactionWithFeeRetry } from "../ckb/transaction-wrapper";
 import { TippingInfo } from "../providers/tipping-provider";
 import { udtRegistry } from "./udt-registry";
 import { createScopedLogger } from "ssri-ckboost";
+import {decodeAdminRegistry} from "../revamp/admin-registry-model";
 
 const log = createScopedLogger("TippingService");
+
+/** Installed only after exact executable/registry manifest verification by
+ * the isolated Admin flow. It does not modify legacy provider behavior. */
+export interface AdminTippingExecutionPolicy {
+  protocolTypeHash: ccc.Hex;
+  registryTypeHash: ccc.Hex;
+  registryCell: ccc.Cell;
+  declaredAtMs: bigint;
+}
 
 export class TippingService {
   private signer?: ccc.Signer;
@@ -28,15 +38,27 @@ export class TippingService {
   private readonly tippingTypeCodeHash: ccc.Hex;
   private udtInstances: Map<string, udt.Udt>;
   private protocolDataCache?: ReturnType<typeof ProtocolData.decode>;
+  private adminPolicy?: AdminTippingExecutionPolicy;
+  private transactionOptions:{allowFeeRetry?:boolean};
 
   constructor(
     signer: ccc.Signer | undefined,
     tipping: Tipping | null,
-    protocolCell: ccc.Cell
+    protocolCell: ccc.Cell,
+    adminPolicy?: AdminTippingExecutionPolicy,
+    transactionOptions:{allowFeeRetry?:boolean}={}
   ) {
     this.signer = signer;
     this.tipping = tipping;
     this.protocolCell = protocolCell;
+    this.adminPolicy = adminPolicy;
+    this.transactionOptions=transactionOptions;
+    if (adminPolicy && (adminPolicy.protocolTypeHash !== protocolCell.cellOutput.type?.hash() ||
+      adminPolicy.registryCell.cellOutput.type?.hash() !== adminPolicy.registryTypeHash ||
+      !adminPolicy.registryCell.cellOutput.lock.eq(adminPolicy.registryCell.cellOutput.type!) ||
+      adminPolicy.declaredAtMs <= 0n || adminPolicy.declaredAtMs > 0xffffffffffffffffn)) {
+      throw new Error("The reviewed Admin tipping policy does not match this protocol and registry");
+    }
 
     const network = deploymentManager.getCurrentNetwork();
     const codeHash = deploymentManager.getContractCodeHash(
@@ -90,13 +112,20 @@ export class TippingService {
     const requiredApprovals = this.calculateRequiredApprovals(normalizedData);
 
     let draftTx = ccc.Transaction.from(tx ?? {});
+    if (this.adminPolicy) {
+      const registry = decodeAdminRegistry(this.adminPolicy.registryCell.outputData);
+      if (registry.protocolTypeHash !== this.getProtocolTypeHash()) throw new Error("Foreign tipping policy registry");
+      const created=ccc.numFrom(normalizedData.metadata.creation_timestamp),at=this.adminPolicy.declaredAtMs,expiry=BigInt(registry.tipping.expirationSeconds);
+      if(created<1_000_000_000_000n||created>at||expiry>0n&&at>=created+expiry*1000n)throw new Error("This V2 proposal's signed time is invalid or expired");
+      draftTx.addCellDeps({outPoint:this.adminPolicy.registryCell.outPoint,depType:"code"});
+    }
 
     if (supportersCount >= requiredApprovals) {
       if (normalizedData.status?.toLowerCase?.() !== "granted") {
         normalizedData.status = "granted";
       }
       if (!normalizedData.granted_at) {
-        normalizedData.granted_at = BigInt(Date.now());
+        normalizedData.granted_at = this.adminPolicy?.declaredAtMs ?? BigInt(Date.now());
       }
 
       const shortage = await this.calculateFundingShortage(normalizedData);
@@ -117,7 +146,8 @@ export class TippingService {
       const updateTippingTx = await tipping.updateTipping(
         this.signer,
         normalizedData,
-        draftTx
+        draftTx,
+        this.adminPolicy?.declaredAtMs
       );
       const network = deploymentManager.getCurrentNetwork();
       const protocolLockCodeHash = deploymentManager.getContractCodeHash(
@@ -169,7 +199,8 @@ export class TippingService {
 
       const txHash = await sendTransactionWithFeeRetry(
         this.signer,
-        updateTippingTx.res
+        updateTippingTx.res,
+        {...this.transactionOptions,...(this.adminPolicy?{preserveOutputCapacityIndices:new Set(updateTippingTx.res.outputs.map((_output,index)=>index))}:{})}
       );
       return txHash;
     } catch (error) {
@@ -218,7 +249,7 @@ export class TippingService {
     });
     await tx.addOutput(output, "0x");
 
-    const txHash = await sendTransactionWithFeeRetry(signer, tx);
+    const txHash = await sendTransactionWithFeeRetry(signer, tx,this.transactionOptions);
     return txHash;
   }
 
@@ -263,7 +294,7 @@ export class TippingService {
       await udtInstance.completeBy(tx, signer);
     }
 
-    const txHash = await sendTransactionWithFeeRetry(signer, tx);
+    const txHash = await sendTransactionWithFeeRetry(signer, tx,this.transactionOptions);
     return txHash;
   }
 
@@ -591,7 +622,28 @@ export class TippingService {
       targetLockScript
     );
 
+    if (this.adminPolicy && tippingData.rewards.udt_assets.length) {
+      preparedTx = await this.addAdminUdtRewardFunding(preparedTx, tipping, tippingData, targetLockScript);
+    }
     return preparedTx;
+  }
+
+  /** V2 only. Spend the exact protocol pool asset and return all excess to
+   * that same pool. Wallet UDT balances never silently subsidize a shortfall. */
+  private async addAdminUdtRewardFunding(tx:ccc.Transaction,tipping:Tipping,data:TippingDataLike,target:ccc.Script):Promise<ccc.Transaction> {
+    if (!this.adminPolicy) throw new Error("Registry-aware UDT payouts are unavailable");
+    const summary=await tipping.collectFundingPool(this.requireSigner()),pool=await this.getFundingLockScript();
+    const accepted=new Set(this.getProtocolDataDecoded().protocol_config.script_code_hashes.accepted_udt_type_scripts.map(value=>ccc.Script.from(value).hash()));
+    const seen=new Set<string>();
+    for (const reward of data.rewards.udt_assets) {
+      const type=ccc.Script.from(reward.udt_script),hash=type.hash(),amount=ccc.numFrom(reward.amount);
+      if (!accepted.has(hash)||seen.has(hash)||amount<=0n) throw new Error("A tipping UDT reward is unsupported, repeated or non-positive");
+      seen.add(hash);
+      const token=await this.getUdtInstance(type);
+      const {appendAdminTipUdtDistribution}=await import("../revamp/admin-tipping-transaction");
+      appendAdminTipUdtDistribution(tx,{pool,target,type,amount,cells:summary.udtCellsByType.get(hash)??[],code:token.code});
+    }
+    return tx;
   }
 
   private async addCkbRewardFunding(
@@ -613,7 +665,12 @@ export class TippingService {
 
     let remaining = requiredCKB;
     const selectedCells: ccc.Cell[] = [];
-    for (const cell of fundingSummary.ckbCells) {
+    if(this.adminPolicy){
+      const {selectAdminTipCkbFunding,AdminTipPoolReserveError}=await import("../revamp/admin-tipping-transaction");
+      try{const selection=selectAdminTipCkbFunding(fundingSummary.ckbCells,await this.getFundingLockScript(),requiredCKB);selectedCells.push(...selection.cells);remaining=0n;}
+      catch(error){if(error instanceof AdminTipPoolReserveError)throw new InsufficientTippingFundingError({ckb:{required:error.required,available:error.available},udts:[]});throw error;}
+    }
+    for (const cell of this.adminPolicy ? [] : fundingSummary.ckbCells) {
       const capacity = this.capacityToBigInt(cell.cellOutput.capacity);
       selectedCells.push(cell);
       if (capacity >= remaining) {
@@ -781,6 +838,11 @@ export class TippingService {
   }
 
   private getApprovalThresholds(): bigint[] {
+    if (this.adminPolicy) {
+      const registry=decodeAdminRegistry(this.adminPolicy.registryCell.outputData);
+      if(registry.protocolTypeHash!==this.getProtocolTypeHash())throw new Error("Foreign tipping policy registry");
+      return registry.tipping.thresholdsShannons.map(value=>BigInt(value));
+    }
     const data = this.getProtocolDataDecoded();
     const raw = data.tipping_config?.approval_requirement_thresholds ?? [];
     return raw.map((threshold) => this.parseBigInt(threshold));

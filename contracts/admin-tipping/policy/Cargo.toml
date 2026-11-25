@@ -1,0 +1,18 @@
+[package]
+name = "ckboost-admin-tipping-policy"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+ckboost-admin-registry = { path = "../../admin-registry" }
+ckboost-shared = { path = "../../libs/ckboost-shared" }
+molecule = { version = "0.8.0", default-features = false }
+ckb-std = { version = "0.16.4", default-features = false, features = ["allocator", "ckb-types", "dummy-atomic"], optional = true }
+ckb_deterministic = { path = "../../../../ckb_deterministic/ckb_deterministic", optional = true }
+ckb-testtool = { version = "=0.15.1", optional = true }
+
+[features]
+default = []
+onchain = ["dep:ckb-std", "dep:ckb_deterministic"]
+vm-tests = ["dep:ckb-testtool"]
