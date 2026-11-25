@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ccc } from "@ckb-ccc/connector-react";
 import { usePendingTransactions } from "@/lib/providers/pending-transaction-provider";
 import { useDiscovery } from "@/lib/revamp/discovery-provider";
@@ -26,9 +27,12 @@ function DiscoveryHeader() {
 }
 
 export function RevampHeaderAccount(scope: HeaderAccountScope) {
-  const { theme, toggleTheme } = useRevampTheme();
+  const { theme, toggleTheme, portalContainer } = useRevampTheme();
+  const pathname = usePathname();
   const { open } = ccc.useCcc();
   const account = useHeaderAccount(scope);
+  const [walletMenuOpen, setWalletMenuOpen] = useState(false);
+  useEffect(() => { setWalletMenuOpen(false); }, [account.address, account.isConnected]);
   const { activeCount } = usePendingTransactions();
   const previousPending = useRef(activeCount);
   useEffect(() => {
@@ -46,12 +50,14 @@ export function RevampHeaderAccount(scope: HeaderAccountScope) {
       </span>
     </Link>
     <nav className={styles.navigation} aria-label="Main navigation">
-      <Link href="/revamp" prefetch={false} aria-current="page"><span className={styles.navFlag} aria-hidden="true" />Campaigns</Link>
+      <Link href="/revamp" prefetch={false} aria-current={pathname === "/revamp" || pathname.startsWith("/revamp/campaign") ? "page" : undefined}><span className={styles.navFlag} aria-hidden="true" />Campaigns</Link>
       <Link href="/leaderboard" prefetch={false}><span className={styles.navTrophy}><FigmaIcon name="trophy" size={18} /></span>Leaderboard</Link>
       <Link href="/tipping" prefetch={false}><FigmaIcon name="udt" size={18} />Tipping</Link>
     </nav>
     <div className={styles.actions}>
-      <RevampButton onClick={() => open()} variant={account.isConnected ? "secondary" : "primary"} className={`${styles.wallet} ${account.isConnected ? styles.connectedWallet : ""}`}
+      <DropdownMenu.Root open={account.isConnected && walletMenuOpen} onOpenChange={next => { if (account.isConnected) setWalletMenuOpen(next); }}>
+      <DropdownMenu.Trigger asChild>
+      <RevampButton onClick={() => { if (!account.isConnected) open(); }} variant={account.isConnected ? "secondary" : "primary"} className={`${styles.wallet} ${account.isConnected ? styles.connectedWallet : ""}`}
         aria-label={`${account.isConnected ? `Open wallet${account.address ? ` ${account.address}` : ""}` : 'Connect wallet'}${activeCount ? `, ${activeCount} pending transactions` : ''}`}>
         {account.isConnected && <span className={styles.walletPoints} title={account.error ?? (account.isLoading ? "Loading Points balance" : account.points === null ? "Points balance unavailable" : `${points} spendable Points`)} aria-label={account.points === null ? "Points balance unavailable" : `${points} spendable Points`}>
           <FigmaIcon name="trophy" size={18} /><span>{points}</span>
@@ -60,6 +66,15 @@ export function RevampHeaderAccount(scope: HeaderAccountScope) {
         {!account.isConnected && <span className={styles.walletSpacer} aria-hidden="true" />}
         {account.isConnected && activeCount > 0 && <span className={styles.pending}>{activeCount}</span>}
       </RevampButton>
+      </DropdownMenu.Trigger>
+      {account.isConnected && <DropdownMenu.Portal container={portalContainer ?? undefined}>
+        <DropdownMenu.Content align="end" sideOffset={8} className={styles.walletMenu}>
+          <DropdownMenu.Item asChild><Link href="/revamp/profile" prefetch={false} className={styles.walletMenuItem}>My profile</Link></DropdownMenu.Item>
+          <DropdownMenu.Item className={styles.walletMenuItem} onSelect={() => open()}>Manage wallet</DropdownMenu.Item>
+          <DropdownMenu.Item className={styles.walletMenuItem} onSelect={account.refresh}>Refresh points</DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>}
+      </DropdownMenu.Root>
       <RevampButton variant="secondary" size="icon" disabled className={styles.notifications}
         aria-label="Notifications (coming soon)" title="Notifications are coming soon">
         <FigmaIcon name="bell" />
@@ -81,7 +96,7 @@ export function RevampSiteFooter() {
 
 export function RevampSiteShell({ children }: { children: ReactNode }) {
   return <div className={styles.shell}>
-    <a href="#revamp-main" className={styles.skip}>Skip to campaigns</a>
+    <a href="#revamp-main" className={styles.skip}>Skip to content</a>
     <RevampSiteHeader />{children}<RevampSiteFooter />
   </div>;
 }

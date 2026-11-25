@@ -1,4 +1,4 @@
-# CKBoost Home + Campaign redesign
+# CKBoost redesign
 
 Figma source: [CKBoost Redesign](https://www.figma.com/design/nxsPSskHMjrxLYW8AWTf5N/CKBoost-Redesign?node-id=17-2). The six sections cover discovery, contributor submission, pending-response editing, campaign creation, saved templates, and submission review. State variants share routes and components.
 
@@ -10,6 +10,8 @@ Figma source: [CKBoost Redesign](https://www.figma.com/design/nxsPSskHMjrxLYW8AW
 - `/revamp/campaigns/new`: creation, wallet-scoped drafts and templates.
 - `/revamp/campaign/[campaignTypeId]/review`: assigned reviewer workspace and quest exports.
 - `/revamp/design-system`: scoped Light/Dark controls and typography.
+- `/revamp/profile`: connected wallet's profile, Campaigns, Activities and lazy Rewards history, reached from the wallet menu's My profile item.
+- `/revamp/profile/badges`: current protocol's claimed badges and explicit eligibility/loading/empty/error states.
 
 The `(legacy)` route group owns the original Nextra layout and page map; its URLs remain unchanged. The `/revamp` layout does not import that shell or construct its page map. The root keeps one shared wallet/query instance while route-specific business providers load on demand. The new subtree is hidden from legacy navigation and marked noindex. The existing homepage is not replaced.
 
@@ -52,6 +54,57 @@ From `dapp`, run `./node_modules/.bin/jest components/revamp/__tests__ lib/revam
 Run `./node_modules/.bin/tsc --noEmit --incremental false` separately from `NEXT_TELEMETRY_DISABLED=1 ./node_modules/.bin/next build --webpack`. The repository config already sets `typescript.ignoreBuildErrors: true`; build success is not a clean type-check guarantee. The latest clean-checkout type check retains 8 pre-existing tipping, profile and Netlify diagnostics. Two unused imports from an external CCC checkout were removed for portable local startup.
 
 Browser acceptance compares the supplied desktop frames and checks narrow layouts, Light/Dark, filters and direct-route access. Wallet-signing and on-chain permission behavior require the corresponding contract tests and an upgraded test deployment; no real wallet transaction is executed as part of visual QA.
+
+## Personal profile implementation
+
+The profile follows Figma `3247:18057`. Its desktop content is capped at 1440px:
+72px side padding, a 320px sidebar, 32px gap and 944px workspace at the design
+width. Narrow layouts stack the sidebar and workspace; tables scroll inside
+their cards. Light/Dark uses the existing wrapper tokens. Exported cover,
+badge artwork and pixel icons remain local assets.
+
+Profile reads use the current protocol and wallet lock. Identity, spendable
+Points, campaign/activity data, badges and positive Points transaction history
+have independent loading/error/retry states. Changing account, client or
+protocol hides previous results. A failed query never becomes a zero balance
+or an empty participation history. No legacy full-history provider is mounted.
+Rewards history is requested only after selecting Rewards.
+
+“Total points” is the wallet's current spendable Points balance. Campaign
+“Points earned” sums its current accepted quest awards; it is not a lifetime
+ledger. Activity shows current review status, and “Last active” comes from the
+User Cell. UserData has no joined date, so one is not invented. Rewards shows
+positive wallet changes among at most 20 matching transactions. The API does
+not prove which campaign produced a change. Timestamps are read from matching
+block headers only after opening Rewards, with merged requests and at most
+four simultaneous reads. Missing or invalid headers leave dates unavailable;
+dates are never guessed from submission time. Unresolvable
+transaction inputs fail the entire history response instead of overstating
+received Points by omitting those inputs.
+
+Name editing reuses the existing on-chain profile recipe and verification
+service, requiring explicit wallet interaction. It reports success only after
+confirmation and a fresh User Cell containing the new name. Retrying a pending
+update checks the same transaction; a read refresh cannot trigger a second
+name transaction. The existing verification service must be configured for
+this environment; reading a name does not require that service or a private key.
+
+Badge definitions and receiver records are read only from this protocol.
+Unclaimed definitions have **unknown** eligibility because the legacy
+eligibility/attestation service does not scope its selection by protocol.
+The new route does not call that service or enable badge claims. It displays
+an unavailable state instead of “0 claimable” or “all caught up” in that case.
+Known milestone titles use their Figma artwork; custom claimed badges retain
+their actual title. No badge definitions or claims are created by opening a
+profile. The original `/profile` and its existing reward/identity flows remain
+available. This iteration does not upgrade contracts, alter roles or deploy a
+site.
+
+Focused profile tests cover identity changes, partial reads, bigint totals,
+name confirmation/rejection, sorting, keyboard tabs, clipboard feedback and
+unknown badge eligibility. The broader revamp regression suite also exercises
+existing campaign and permission behavior. Browser fixtures use isolated test
+data outside app routes and never connect to or sign with a user's wallet.
 
 ## Shared Testnet QA setup
 

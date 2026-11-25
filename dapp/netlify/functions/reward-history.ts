@@ -193,7 +193,7 @@ export const handler: Handler = async (event) => {
     try {
       const txResponse = await client.getTransaction(match.txHash);
       if (!txResponse) {
-        continue;
+        throw new Error("A matching Points transaction could not be loaded.");
       }
       const tx = txResponse.transaction;
 
@@ -204,6 +204,9 @@ export const handler: Handler = async (event) => {
       const outputs = outputCells.map((cell) => {
         const index = Number(cell.cellIndex);
         const data = tx.outputsData[index];
+        if (!Number.isSafeInteger(index) || index < 0 || !data || ccc.bytesFrom(data).length < 16) {
+          throw new Error("A matching Points output could not be decoded.");
+        }
         const amount = readUdtAmount(data);
         outputTotal += amount;
         return { index, amount: amount.toString() };
@@ -215,19 +218,19 @@ export const handler: Handler = async (event) => {
       for (const cell of inputCells) {
         const index = Number(cell.cellIndex);
         const input = tx.inputs[index];
-        if (!input) continue;
-        try {
-          const previous = await input.getCell(client);
-          if (!previous) continue;
-          const amount = readUdtAmount(previous.outputData);
-          inputTotal += amount;
-          inputs.push({ index, amount: amount.toString() });
-        } catch (error) {
-          logger.warn(
-            `Failed to load input cell for tx ${match.txHash} index ${index}:`,
-            error
-          );
+        if (!Number.isSafeInteger(index) || index < 0 || !input) {
+          throw new Error("A matching Points input is missing from its transaction.");
         }
+        // Omitting one unresolved input inflates the net amount (for example,
+        // a 100 -> 100 consolidation would falsely appear to earn 100 Points).
+        // Preserve unknown on failure instead of returning a partial history.
+        const previous = await input.getCell(client);
+        if (!previous || ccc.bytesFrom(previous.outputData).length < 16) {
+          throw new Error("A matching Points input could not be resolved or decoded.");
+        }
+        const amount = readUdtAmount(previous.outputData);
+        inputTotal += amount;
+        inputs.push({ index, amount: amount.toString() });
       }
 
       const netPoints = outputTotal - inputTotal;
@@ -245,6 +248,13 @@ export const handler: Handler = async (event) => {
       });
     } catch (error) {
       logger.warn(`Failed to process transaction ${match.txHash}`, error);
+      return {
+        statusCode: 500,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          error: "Points transaction history could not be fully resolved. Please retry.",
+        }),
+      };
     }
   }
 
