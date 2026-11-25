@@ -12,6 +12,7 @@ Figma source: [CKBoost Redesign](https://www.figma.com/design/nxsPSskHMjrxLYW8AW
 - `/revamp/design-system`: scoped Light/Dark controls and typography.
 - `/revamp/profile`: connected wallet's profile, Campaigns, Activities and lazy Rewards history, reached from the wallet menu's My profile item.
 - `/revamp/profile/badges`: current protocol's claimed badges and explicit eligibility/loading/empty/error states.
+- `/revamp/admin`: current platform Admin's Overview, period metrics, pending actions, per-asset funding and recorded activity.
 
 The `(legacy)` route group owns the original Nextra layout and page map; its URLs remain unchanged. The `/revamp` layout does not import that shell or construct its page map. The root keeps one shared wallet/query instance while route-specific business providers load on demand. The new subtree is hidden from legacy navigation and marked noindex. The existing homepage is not replaced.
 
@@ -51,9 +52,14 @@ Drafts/templates are local and scoped by network, protocol and wallet. Browser B
 
 From `dapp`, run `./node_modules/.bin/jest components/revamp/__tests__ lib/revamp/__tests__ netlify/lib/staff-authorization.test.ts netlify/lib/staff-claimable-rewards.test.ts netlify/__tests__/staff-approve-submissions.test.ts netlify/__tests__/staff-approve-submissions.integration.test.ts netlify/__tests__/isolated-protocol-scope.test.ts netlify/__tests__/platform-stats.test.ts --runInBand` for the focused interaction, isolation, role, data, evidence, transaction-boundary and real-codec proxy-handler suites. Run `./node_modules/.bin/jest --runInBand` for the complete dapp suite. The SDK authorization suites run from `packages/ssri-ckboost` with `pnpm exec jest --config sdk-auth.jest.config.cjs --runInBand`.
 
-Run `./node_modules/.bin/tsc --noEmit --incremental false` separately from `NEXT_TELEMETRY_DISABLED=1 ./node_modules/.bin/next build --webpack`. The repository config already sets `typescript.ignoreBuildErrors: true`; build success is not a clean type-check guarantee. The latest clean-checkout type check retains 8 pre-existing tipping, profile and Netlify diagnostics. Two unused imports from an external CCC checkout were removed for portable local startup.
+Run `./node_modules/.bin/tsc --noEmit --incremental false` separately from `NEXT_TELEMETRY_DISABLED=1 ./node_modules/.bin/next build --webpack`. The repository config already sets `typescript.ignoreBuildErrors: true`; build success is not a clean type-check guarantee. The current type check retains 6 pre-existing profile-data and Netlify cache-refresh diagnostics. Two tipping predicate diagnostics were fixed while making the pending-tip workflow scope-safe. Two unused imports from an external CCC checkout were removed for portable local startup.
 
 Browser acceptance compares the supplied desktop frames and checks narrow layouts, Light/Dark, filters and direct-route access. Wallet-signing and on-chain permission behavior require the corresponding contract tests and an upgraded test deployment; no real wallet transaction is executed as part of visual QA.
+
+## Admin Overview implementation
+
+The finalized Admin Overview implementation and remaining capability gaps are
+documented in [the admin implementation notes](../../lib/revamp/admin-README.md).
 
 ## Personal profile implementation
 

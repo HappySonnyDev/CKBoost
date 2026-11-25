@@ -10,6 +10,12 @@ type StatsWindowKey = "1d" | "7d" | "30d" | "90d" | "365d" | "total";
 
 type StatsResponse = {
   lastUpdated: string;
+  scope: {
+    network: StatsScope["network"];
+    protocolTypeHash: string;
+    userTypeCodeHash: string;
+    pointsTypeScript: { codeHash: string; hashType: ccc.HashType; args: string };
+  };
   pointsMinted: Record<StatsWindowKey, string>;
   questSubmissions: Record<StatsWindowKey, number>;
   newUsers: Record<StatsWindowKey, number>;
@@ -138,6 +144,7 @@ const getBlockTimestamp = async (
       return null;
     }
     const timestamp = Number(BigInt(timestampHex));
+    if (!Number.isSafeInteger(timestamp) || timestamp <= 0) return null;
     cache.set(key, timestamp);
     return timestamp;
   } catch (error) {
@@ -230,7 +237,7 @@ const collectPlatformStats = async (client: ccc.Client, scope: StatsScope): Prom
     try {
       const txInfo = await client.getTransaction(match.txHash);
       if (!txInfo) {
-        continue;
+        throw new Error("A matching Points transaction could not be loaded.");
       }
       const tx = txInfo.transaction;
       const blockNumber = txInfo.blockNumber
@@ -241,6 +248,7 @@ const collectPlatformStats = async (client: ccc.Client, scope: StatsScope): Prom
       tx.outputs.forEach((output, index) => {
         if (output.type && output.type.hash() === pointsTypeHash) {
           const data = tx.outputsData[index];
+          if (!data || ccc.bytesFrom(data).length < 16) throw new Error("A matching Points output could not be decoded.");
           const amount = readUdtAmount(data);
           outputTotal += amount;
         }
@@ -250,16 +258,19 @@ const collectPlatformStats = async (client: ccc.Client, scope: StatsScope): Prom
       for (const input of tx.inputs) {
         try {
           const previous = await input.getCell(client);
-          if (!previous || !previous.cellOutput.type) {
+          if (!previous) throw new Error("A Points transaction input could not be resolved.");
+          if (!previous.cellOutput.type) {
             continue;
           }
           if (previous.cellOutput.type.hash() !== pointsTypeHash) {
             continue;
           }
+          if (ccc.bytesFrom(previous.outputData).length < 16) throw new Error("A matching Points input could not be decoded.");
           const amount = readUdtAmount(previous.outputData);
           inputTotal += amount;
         } catch (error) {
           logger.warn("Failed to load input cell", { txHash: match.txHash, error });
+          throw error;
         }
       }
 
@@ -270,12 +281,13 @@ const collectPlatformStats = async (client: ccc.Client, scope: StatsScope): Prom
 
       const timestamp = await getBlockTimestamp(client, timestampCache, blockNumber);
       if (!timestamp) {
-        continue;
+        throw new Error("The mint transaction's block time could not be resolved.");
       }
 
       mintedRecords.push({ timestamp, amount: net });
     } catch (error) {
       logger.warn("Failed to process points transaction", { txHash: match.txHash, error });
+      throw error;
     }
   }
 
@@ -296,10 +308,6 @@ const collectPlatformStats = async (client: ccc.Client, scope: StatsScope): Prom
   >();
 
   for await (const cell of client.findCells(userSearchKey)) {
-    if (!cell.outputData || cell.outputData === "0x") {
-      continue;
-    }
-
     // A UserType deployment is shared by protocols. Filter the authoritative
     // complete script before grouping by wallet, in both normal and QA mode.
     try {
@@ -312,6 +320,7 @@ const collectPlatformStats = async (client: ccc.Client, scope: StatsScope): Prom
     } catch {
       continue;
     }
+    if (!cell.outputData || cell.outputData === "0x") throw new Error("A current protocol User cell has no profile data.");
 
     let blockNumber: bigint | null = null;
     try {
@@ -319,8 +328,10 @@ const collectPlatformStats = async (client: ccc.Client, scope: StatsScope): Prom
       if (txInfo?.blockNumber) {
         blockNumber = BigInt(txInfo.blockNumber);
       }
+      if (blockNumber === null) throw new Error("A current User cell could not be placed in a block.");
     } catch (error) {
       logger.warn("Failed to resolve user cell transaction", error);
+      throw error;
     }
 
     const lockHash = cell.cellOutput.lock.hash().toLowerCase();
@@ -367,10 +378,11 @@ const collectPlatformStats = async (client: ccc.Client, scope: StatsScope): Prom
         );
         if (firstTimestamp) {
           newUserEvents.push({ timestamp: firstTimestamp });
-        }
+        } else throw new Error("A current User cell's block time could not be resolved.");
       }
     } catch (error) {
       logger.warn("Failed to decode user data", error);
+      throw error;
     }
   }
 
@@ -381,6 +393,12 @@ const collectPlatformStats = async (client: ccc.Client, scope: StatsScope): Prom
 
   return {
     lastUpdated: new Date(now).toISOString(),
+    scope: {
+      network: scope.network,
+      protocolTypeHash,
+      userTypeCodeHash: userTypeCodeHash.toLowerCase(),
+      pointsTypeScript: { codeHash: pointsTypeScript.codeHash, hashType: pointsTypeScript.hashType, args: pointsTypeScript.args },
+    },
     pointsMinted: mintedTotals,
     questSubmissions: submissionTotals,
     newUsers: newUserTotals,

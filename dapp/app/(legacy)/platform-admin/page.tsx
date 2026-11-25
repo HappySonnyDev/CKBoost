@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useEffect, useMemo, JSX } from "react";import { ccc } from "@ckb-ccc/connector-react";
+import { Suspense, useState, useEffect, useMemo, JSX } from "react";import { ccc } from "@ckb-ccc/connector-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { legacyAdminHref, legacyAdminTab } from "@/lib/revamp/admin-navigation";
 import {
   fetchCampaignsConnectedToProtocol,
   extractTypeIdFromCampaignCell,
@@ -420,6 +422,12 @@ const formatBigInt = (value: bigint | null | undefined): string => {
 };
 
 export default function PlatformAdminDashboard() {
+  return <Suspense fallback={<PageLoading />}><PlatformAdminDashboardContent /></Suspense>;
+}
+
+function PlatformAdminDashboardContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const {
     protocolData,
     protocolCell,
@@ -433,7 +441,8 @@ export default function PlatformAdminDashboard() {
     error: tippingError,
   } = useTippingsData();
   const { client } = ccc.useCcc();
-  const [activeTab, setActiveTab] = useState("overview");
+  const activeTab = legacyAdminTab(searchParams.get("tab"));
+  const setActiveTab = (tab: string) => router.replace(legacyAdminHref(searchParams.toString(), legacyAdminTab(tab)), {scroll: false});
   const [isRewardDialogOpen, setIsRewardDialogOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("all");

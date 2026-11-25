@@ -9,6 +9,7 @@
 .navigation { display: flex; align-items: center; gap: 8px; }
 .navigation a { display: flex; align-items: center; justify-content: center; gap: 4px; height: 40px; padding: 8px 16px; border-bottom: 1px solid transparent; border-radius: 8px; color: var(--ckb-text-muted); font-size: 14px; line-height: 20px; font-weight: 700; white-space: nowrap; }
 .navFlag { display: block; flex-shrink: 0; width: 18px; height: 18px; background: currentColor; mask: url('/assets/revamp/nav-flag.svg') center / 18px 18px no-repeat; }
+.navAdmin { display: block; flex-shrink: 0; width: 18px; height: 18px; background: currentColor; mask: url('/assets/revamp/admin-console.svg') center / 18px 18px no-repeat; }
 .navTrophy { display: inline-flex; flex-shrink: 0; color: var(--ckb-text-primary); }
 .header .navigation a[aria-current='page'] { color: var(--ckb-brand-text); border-color: var(--ckb-action-primary-border); border-radius: 0; }
 .header .navigation a:hover { color: var(--ckb-text-primary); background: var(--ckb-background-hover); }

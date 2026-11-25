@@ -33,14 +33,27 @@ const parseBigInt = (value: ccc.NumLike | undefined | null): bigint => {
 };
 
 export function Tippings() {
-  const { tippings: contextTippings, isLoading, error } = useTippingsData();
+  const { tippings: contextTippings, isLoading, error, readScope } = useTippingsData();
   const { updateTipping } = useTippingContext();
   const { isAdmin, isEndorser, protocolData, endorserResolver } = useProtocol();
   const signer = ccc.useSigner();
   const { toast } = useToast();
   const searchParams = useSearchParams();
 
-  const [tippings, setTippings] = useState<TippingInfo[]>(contextTippings);
+  const [localTippings, setLocalTippings] = useState<{scope: object | null; source: TippingInfo[]; rows: TippingInfo[]} | null>(null);
+  const currentRead = useRef({scope: readScope, source: contextTippings});
+  currentRead.current = {scope: readScope, source: contextTippings};
+  // The authoritative context is always the base. Local interaction patches
+  // apply only to that exact read, never a previous wallet/protocol's same ID.
+  const tippings = localTippings?.scope === readScope && localTippings.source === contextTippings ? localTippings.rows : contextTippings;
+  const setTippings = (update: React.SetStateAction<TippingInfo[]>) => {
+    if (currentRead.current.scope !== readScope || currentRead.current.source !== contextTippings) return;
+    setLocalTippings(previous => {
+      if (currentRead.current.scope !== readScope || currentRead.current.source !== contextTippings) return previous;
+      const rows = previous?.scope === readScope && previous.source === contextTippings ? previous.rows : contextTippings;
+      return {scope: readScope, source: contextTippings, rows: typeof update === "function" ? update(rows) : update};
+    });
+  };
   const [searchTerm, setSearchTerm] = useState("");
   const [viewerLockHash, setViewerLockHash] = useState<string | null>(null);
   const tippingRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -72,14 +85,10 @@ export function Tippings() {
         if (!id || !targetEventId) return null;
         return { id, targetEventId };
       })
-      .filter((x): x is { id: string; targetEventId: string } => !!x);
+      .filter((x): x is { id: ccc.Hex; targetEventId: string } => !!x);
   }, [tippings]);
 
   const { stats: socialStats } = useSocialInteractions(tippingSocialInputs);
-
-  useEffect(() => {
-    setTippings(contextTippings);
-  }, [contextTippings]);
 
   useEffect(() => {
     let cancelled = false;

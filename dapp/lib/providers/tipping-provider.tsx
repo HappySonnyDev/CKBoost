@@ -6,12 +6,14 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { ccc, ssri } from "@ckb-ccc/connector-react";
 import {
   ConnectedTypeID,
+  ProtocolData,
   TippingMetadataLike,
   type TippingDataLike,
   type UDTAssetLike,
@@ -27,6 +29,8 @@ import { Tipping } from "ssri-ckboost/tipping";
 import { deploymentManager } from "../ckb/deployment-manager";
 
 interface TippingContextType {
+  /** Opaque identity for the currently published read; never a role grant. */
+  readScope: object | null;
   tippings: TippingInfo[];
   isLoading: boolean;
   error: string | null;
@@ -45,13 +49,7 @@ const log = createScopedLogger("TippingProvider");
 export function TippingProvider({ children }: { children: ReactNode }) {
   const signer = ccc.useSigner();
   const { client } = ccc.useCcc();
-  const { protocolCell, protocolData } = useProtocol();
-
-  const [tippings, setTippings] = useState<TippingInfo[]>([]);
-  const [fundingSummary, setFundingSummary] =
-    useState<Awaited<ReturnType<TippingService["getFundingSummary"]>>>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { protocolCell } = useProtocol();
   const [fundingShortage, setFundingShortage] =
     useState<FundingShortage | null>(null);
 
@@ -66,45 +64,82 @@ export function TippingProvider({ children }: { children: ReactNode }) {
       log.error("Failed to initialise tipping service", err);
       return null;
     }
-  }, [protocolCell, signer]);
+  }, [protocolCell, signer, client]);
 
-  const refreshTippings = useCallback(async () => {
-    if (!service || !protocolCell || !client) {
-      setTippings([]);
-      setFundingSummary(null);
-      setFundingShortage(null);
-      if (!service) {
-        setError("Tipping service not available");
-      }
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const decoded = await service.loadApprovedTippings(protocolData, client);
-      setTippings(decoded);
-      setFundingShortage(null);
-
-      if (signer) {
-        const summary = await service.getFundingSummary();
-        setFundingSummary(summary);
-      } else {
-        setFundingSummary(null);
-      }
-    } catch (err) {
-      log.error("Failed to load tippings", err);
-      setError(err instanceof Error ? err.message : "Failed to load tippings");
-      setTippings([]);
-      setFundingSummary(null);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [service, protocolData, client, signer, protocolCell]);
+  const [accountRevision, setAccountRevision] = useState(0);
+  const protocolKey = protocolCell ? `${protocolCell.cellOutput.type?.hash()}:${protocolCell.outPoint.txHash}:${protocolCell.outPoint.index}:${ccc.hashCkb(protocolCell.outputData)}` : "unavailable";
+  const scope = useMemo(() => ({client, signer, protocolCell, service, protocolKey, accountRevision}), [client, signer, protocolCell, service, protocolKey, accountRevision]);
+  const currentScope = useRef(scope); currentScope.current = scope;
+  const requestVersion = useRef(0), mounted = useRef(true);
+  const [readState, setReadState] = useState<{
+    scope: typeof scope; version: number; tippings: TippingInfo[];
+    fundingSummary: Awaited<ReturnType<TippingService["getFundingSummary"]>>;
+    loading: boolean; error: string | null;
+  } | null>(null);
 
   useEffect(() => {
-    refreshTippings();
+    mounted.current = true;
+    return () => {mounted.current = false; requestVersion.current++;};
+  }, []);
+
+  useEffect(() => {
+    if (!signer) return;
+    // CCC wallets notify account replacement even if a connector temporarily
+    // retains the same Signer object. Hide privileged reads before reloading.
+    return signer.onReplaced?.(() => {
+      requestVersion.current++;
+      setAccountRevision(value => value + 1);
+    });
+  }, [signer, accountRevision]);
+
+  const refreshTippings = useCallback(async () => {
+    if (!mounted.current || currentScope.current !== scope) return;
+    const version = ++requestVersion.current;
+    const isCurrent = () => mounted.current && currentScope.current === scope && requestVersion.current === version;
+    const publish = (tippings: TippingInfo[], fundingSummary: Awaited<ReturnType<TippingService["getFundingSummary"]>>, loading: boolean, error: string | null) => {
+      if (isCurrent()) setReadState({scope, version, tippings, fundingSummary, loading, error});
+    };
+    publish([], null, true, null);
+    if (!service || !protocolCell || !client) {
+      setFundingShortage(null);
+      publish([], null, false, "Tipping service not available");
+      return;
+    }
+    try {
+      const protocolData = ProtocolData.decode(protocolCell.outputData);
+      const lockHash = signer ? (await signer.getRecommendedAddressObj()).script.hash().toLowerCase() : null;
+      const checkCurrent = async () => {
+        if (!isCurrent()) throw new Error("The tipping read scope changed.");
+        if (!signer) return;
+        const actualHash = (await signer.getRecommendedAddressObj()).script.hash().toLowerCase();
+        if (!isCurrent()) throw new Error("The tipping read scope changed.");
+        if (actualHash !== lockHash) {
+          requestVersion.current++;
+          setAccountRevision(value => value + 1);
+          throw new Error("The wallet account changed while loading tippings.");
+        }
+      };
+      await checkCurrent();
+      const isAdmin = Boolean(lockHash && protocolData.protocol_config.admin_lock_hash_vec.some(hash => ccc.hexFrom(hash).toLowerCase() === lockHash));
+      // A platform Admin must also see unapproved proposals when another tip is
+      // already approved. Other viewers retain the approved-list read policy.
+      const decoded = isAdmin
+        ? await service.fetchTippingsForProtocol(client)
+        : await service.loadApprovedTippings(protocolData, client);
+      await checkCurrent();
+      const summary = signer ? await service.getFundingSummary() : null;
+      await checkCurrent();
+      if (isCurrent()) setFundingShortage(null);
+      publish(decoded, summary, false, null);
+    } catch (err) {
+      if (!isCurrent()) return;
+      log.error("Failed to load tippings", err);
+      publish([], null, false, err instanceof Error ? err.message : "Failed to load tippings");
+    }
+  }, [scope, service, client, signer, protocolCell]);
+
+  useEffect(() => {
+    void refreshTippings();
   }, [refreshTippings]);
 
   const updateTipping = useCallback(
@@ -221,16 +256,18 @@ export function TippingProvider({ children }: { children: ReactNode }) {
     [service, refreshTippings]
   );
 
+  const visible = readState?.scope === scope && readState.version === requestVersion.current ? readState : null;
   const value: TippingContextType = {
-    tippings,
-    isLoading,
-    error,
+    readScope: visible && !visible.loading ? scope : null,
+    tippings: visible?.tippings ?? [],
+    isLoading: visible?.loading ?? true,
+    error: visible?.error ?? null,
     refreshTippings,
     updateTipping,
-    fundingSummary,
+    fundingSummary: visible?.fundingSummary ?? null,
     fundProtocolWithCKB,
     fundProtocolWithUDT,
-    fundingShortage,
+    fundingShortage: visible && !visible.loading ? fundingShortage : null,
   };
 
   return (
@@ -271,7 +308,7 @@ export interface TippingInfo {
   }>;
 }
 export function useTippingsData() {
-  const { tippings, isLoading, error, fundingSummary } = useTippingContext();
+  const { tippings, isLoading, error, fundingSummary, readScope } = useTippingContext();
 
   const decodedTippings = useMemo(() => {
     return tippings.map(
@@ -292,6 +329,7 @@ export function useTippingsData() {
     isLoading,
     error,
     fundingSummary,
+    readScope,
     totalTippings: decodedTippings.length,
   };
 }

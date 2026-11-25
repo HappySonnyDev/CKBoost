@@ -79,6 +79,8 @@ it.each(["normal", "QA"])("filters authoritative user identity before owner/late
   mockCells = [older, latest, foreign, malformed, trailing, wrongCode, wrongHashType, otherOwner];
   const result = await invoke();
   expect(result).toMatchObject({ statusCode: 200, data: { newUsers: { total: 2 }, questSubmissions: { total: 4 }, pointsMinted: { total: "0" } } });
+  expect(result.data.scope).toEqual({ network: "testnet", protocolTypeHash: ownHash, userTypeCodeHash: mockUserCode,
+    pointsTypeScript: { codeHash: mockPointsCode, hashType: "type", args: ownHash } });
   expect(mockGetTransaction.mock.calls.map(([hash]) => hash)).toEqual([older.outPoint.txHash, latest.outPoint.txHash, otherOwner.outPoint.txHash]);
   expect(mockWarn).not.toHaveBeenCalled();
   expect(mockTransactions.mock.calls[0][0]).toMatchObject({ scriptSearchMode: "exact", scriptType: "type", script: { codeHash: mockPointsCode, args: ownHash } });
@@ -172,4 +174,59 @@ it("retains the normal-mode protocol environment requirement before any query", 
   expect(result.statusCode).toBe(500);
   expect(result.data.message).toContain("Protocol type environment variables missing");
   expect(mockTransactions).not.toHaveBeenCalled(); expect(mockFindCells).not.toHaveBeenCalled();
+});
+
+function pointsTransferFixture() {
+  const type = ccc.Script.from({ codeHash: mockPointsCode, hashType: "type", args: ccc.Script.from(mockProtocol).hash() });
+  const lock = { codeHash: mockHash("9a"), hashType: "type" as const, args: "0x" };
+  const txHash = mockHash("c1");
+  const tx = ccc.Transaction.from({ inputs: [{ previousOutput: { txHash: mockHash("c2"), index: 0 } }],
+    outputs: [{ capacity: 100000000000n, lock, type }], outputsData: [mol.Uint128.encode(100n)],
+  });
+  const previous = ccc.Cell.from({ outPoint: tx.inputs[0].previousOutput, cellOutput: { capacity: 100000000000n, lock, type }, outputData: mol.Uint128.encode(100n) });
+  const getCell = jest.spyOn(tx.inputs[0], "getCell").mockResolvedValue(previous);
+  const response = ccc.ClientTransactionResponse.from({ transaction: tx, status: "committed", blockNumber: 5n });
+  mockTxs.set(txHash, response);
+  mockTransactions.mockImplementation(() => (async function* () { yield { txHash }; })());
+  return { tx, previous, getCell, txHash, response };
+}
+
+it.each(["rejected input", "missing input", "malformed input", "malformed output", "missing transaction"])("fails closed on %s and never caches a partially resolved mint total", async failure => {
+  setLegacyProtocol();
+  const handler = loadHandler(), f = pointsTransferFixture();
+  if (failure === "rejected input") f.getCell.mockRejectedValueOnce(new Error("Previous transaction unavailable"));
+  if (failure === "missing input") f.getCell.mockResolvedValueOnce(undefined as unknown as ccc.Cell);
+  if (failure === "malformed input") { const bad = f.previous.clone(); bad.outputData = "0x01"; f.getCell.mockResolvedValueOnce(bad); }
+  if (failure === "malformed output") f.tx.outputsData[0] = "0x01";
+  if (failure === "missing transaction") mockGetTransaction.mockResolvedValueOnce(undefined as unknown as ccc.ClientTransactionResponse);
+  const first = await invoke(handler);
+  expect(first.statusCode).toBe(500); expect(first.data).not.toHaveProperty("pointsMinted");
+  f.tx.outputsData[0] = ccc.hexFrom(mol.Uint128.encode(100n));
+  const recovered = await invoke(handler);
+  expect(recovered).toMatchObject({ statusCode: 200, data: { pointsMinted: { total: "0" } } });
+  expect(mockTransactions).toHaveBeenCalledTimes(2);
+});
+
+it("does not cache a positive mint whose block time is unavailable", async () => {
+  setLegacyProtocol();
+  const handler = loadHandler(), f = pointsTransferFixture(); f.tx.outputsData[0] = ccc.hexFrom(mol.Uint128.encode(101n));
+  mockGetHeader.mockRejectedValueOnce(new Error("Header unavailable"));
+  expect((await invoke(handler)).statusCode).toBe(500);
+  expect(await invoke(handler)).toMatchObject({ statusCode: 200, data: { pointsMinted: { total: "1" } } });
+  expect(mockTransactions).toHaveBeenCalledTimes(2);
+});
+
+it.each(["missing block", "missing header", "malformed profile", "empty profile"])("does not publish or cache partial User metrics for a canonical current-protocol %s", async failure => {
+  setLegacyProtocol(); const handler = loadHandler();
+  const valid = userCell(ccc.Script.from(mockProtocol).hash(), "d1", 2);
+  mockCells = [valid.clone()];
+  if (failure === "missing block") mockGetTransaction.mockResolvedValueOnce(ccc.ClientTransactionResponse.from({ transaction: {}, status: "pending" }));
+  if (failure === "missing header") mockGetHeader.mockRejectedValueOnce(new Error("Header unavailable"));
+  if (failure === "malformed profile") mockCells[0].outputData = "0x01";
+  if (failure === "empty profile") mockCells[0].outputData = "0x";
+  const first = await invoke(handler);
+  expect(first.statusCode).toBe(500); expect(first.data).not.toHaveProperty("questSubmissions");
+  mockCells = [valid];
+  expect(await invoke(handler)).toMatchObject({ statusCode: 200, data: { questSubmissions: { total: 2 } } });
+  expect(mockFindCells).toHaveBeenCalledTimes(2);
 });

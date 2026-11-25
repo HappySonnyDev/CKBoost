@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ccc } from "@ckb-ccc/connector-react";
+import { ProtocolData } from "ssri-ckboost/types";
 import { usePendingTransactions } from "@/lib/providers/pending-transaction-provider";
 import { useDiscovery } from "@/lib/revamp/discovery-provider";
 import { useHeaderAccount, type HeaderAccountScope } from "@/lib/revamp/use-header-account";
@@ -31,6 +32,12 @@ export function RevampHeaderAccount(scope: HeaderAccountScope) {
   const pathname = usePathname();
   const { open } = ccc.useCcc();
   const account = useHeaderAccount(scope);
+  const isPlatformAdmin = useMemo(() => {
+    if (!account.isConnected || !account.lockHash || !scope.protocolCell || scope.protocolLoading || scope.protocolError) return false;
+    try {
+      return ProtocolData.decode(scope.protocolCell.outputData).protocol_config.admin_lock_hash_vec.some(value => ccc.hexFrom(value).toLowerCase() === account.lockHash!.toLowerCase());
+    } catch { return false; }
+  }, [account.isConnected, account.lockHash, scope.protocolCell, scope.protocolLoading, scope.protocolError]);
   const [walletMenuOpen, setWalletMenuOpen] = useState(false);
   useEffect(() => { setWalletMenuOpen(false); }, [account.address, account.isConnected]);
   const { activeCount } = usePendingTransactions();
@@ -53,6 +60,7 @@ export function RevampHeaderAccount(scope: HeaderAccountScope) {
       <Link href="/revamp" prefetch={false} aria-current={pathname === "/revamp" || pathname.startsWith("/revamp/campaign") ? "page" : undefined}><span className={styles.navFlag} aria-hidden="true" />Campaigns</Link>
       <Link href="/leaderboard" prefetch={false}><span className={styles.navTrophy}><FigmaIcon name="trophy" size={18} /></span>Leaderboard</Link>
       <Link href="/tipping" prefetch={false}><FigmaIcon name="udt" size={18} />Tipping</Link>
+      {isPlatformAdmin && <Link href="/revamp/admin" prefetch={false} aria-current={pathname === "/revamp/admin" || pathname.startsWith("/revamp/admin/") ? "page" : undefined}><span className={styles.navAdmin} aria-hidden="true" />Admin console</Link>}
     </nav>
     <div className={styles.actions}>
       <DropdownMenu.Root open={account.isConnected && walletMenuOpen} onOpenChange={next => { if (account.isConnected) setWalletMenuOpen(next); }}>
@@ -70,6 +78,8 @@ export function RevampHeaderAccount(scope: HeaderAccountScope) {
       {account.isConnected && <DropdownMenu.Portal container={portalContainer ?? undefined}>
         <DropdownMenu.Content align="end" sideOffset={8} className={styles.walletMenu}>
           <DropdownMenu.Item asChild><Link href="/revamp/profile" prefetch={false} className={styles.walletMenuItem}>My profile</Link></DropdownMenu.Item>
+          {isPlatformAdmin && <DropdownMenu.Item asChild><Link href="/revamp/admin" prefetch={false} className={styles.walletMenuItem}>Admin console</Link></DropdownMenu.Item>}
+          {isPlatformAdmin && <DropdownMenu.Item asChild><Link href="/platform-admin?tab=protocol" prefetch={false} className={styles.walletMenuItem}>Protocol settings</Link></DropdownMenu.Item>}
           <DropdownMenu.Item className={styles.walletMenuItem} onSelect={() => open()}>Manage wallet</DropdownMenu.Item>
           <DropdownMenu.Item className={styles.walletMenuItem} onSelect={account.refresh}>Refresh points</DropdownMenu.Item>
         </DropdownMenu.Content>
