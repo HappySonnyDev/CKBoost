@@ -4,6 +4,7 @@ import {promises as fs} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
+import {QA_BASE_PROFILE,QA_BASE_PROFILE_HASH} from './qa-profile.mjs';
 
 export const ADMIN_CONFIRM_ENDPOINT='https://testnet.ckbapp.dev/';
 const APP=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
@@ -34,8 +35,8 @@ async function parallel(items,fn){let next=0;const values=Array(items.length),er
 export async function confirmAdminUpgradeFromChain({financialHash,protocolHash,rpc,baseProfile,dependencies:provided}={}){
   financialHash=hash(financialHash);protocolHash=hash(protocolHash);assert(financialHash!==protocolHash,'Code batch and protocol configuration are separate transactions.');
   const dep=provided??await dependencies(),{ccc,cccA,runtime,pin,codec,financial,operator}=dep;
-  const base=runtime.validateIsolatedRuntimeConfig(baseProfile??JSON.parse(await fs.readFile(path.join(APP,'config/qa/ckboost-testnet.json'),'utf8')));
-  assert(base.schema==='ckboost-isolated-testnet-runtime/v3'&&base.profileHash==='0x129cd99c43113ab92b4ec5331693c402dd1f40b9269fff6c223ad4d3c201b297','Only the committed v3 QA parent is supported.');
+  const base=runtime.validateIsolatedRuntimeConfig(baseProfile??JSON.parse(await fs.readFile(path.join(APP,QA_BASE_PROFILE.file),'utf8')));
+  assert(base.schema==='ckboost-isolated-testnet-runtime/v3'&&base.profileHash===QA_BASE_PROFILE_HASH,'Only the committed v3 QA parent is supported.');
   const fixed=operator.validateAdminRegistryUpgradePlan(),owner=ccc.Script.from(fixed.source.owner.lock),transactions=new Map(),headers=new Map();
   const sj=s=>({codeHash:s.codeHash,hashType:s.hashType,args:s.args}),pj=p=>({txHash:p.txHash,index:ccc.numToHex(p.index)}),point=p=>`${p.txHash}:${ccc.numFrom(p.index)}`;
   const output=o=>ccc.CellOutput.from({capacity:o.capacity,lock:{codeHash:o.lock.code_hash,hashType:o.lock.hash_type,args:o.lock.args},type:o.type?{codeHash:o.type.code_hash,hashType:o.type.hash_type,args:o.type.args}:undefined});

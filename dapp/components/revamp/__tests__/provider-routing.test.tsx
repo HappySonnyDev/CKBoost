@@ -50,7 +50,7 @@ describe("public preview data isolation", () => {
     for (const name of ["legacy-protocol", "legacy-campaign", "legacy-user", "legacy-tipping", "legacy-claims"]) expect(screen.queryByTestId(name)).not.toBeInTheDocument();
   });
 
-  it.each(["/revamp/design-system", "/revamp/testnet-setup", "/revamp/testnet-code-upgrade", "/revamp/testnet-admin-upgrade", "/revamp/testnet-admin-financial-upgrade"])("does not fetch shared protocol data for isolated utility %s", path => {
+  it.each(["/revamp/design-system", "/revamp/testnet-setup", "/revamp/testnet-code-upgrade", "/revamp/testnet-admin-upgrade", "/revamp/testnet-admin-financial-upgrade", "/revamp/testnet-admin-financial-sign"])("does not fetch shared protocol data for isolated utility %s", path => {
     jest.mocked(usePathname).mockReturnValue(path);
     render(<Providers><main>Components</main></Providers>);
     expect(screen.getByRole("main")).toHaveTextContent("Components");

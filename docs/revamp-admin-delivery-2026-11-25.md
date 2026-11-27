@@ -1,5 +1,32 @@
 # Admin 改版工程交付记录（2026-11-25）
 
+## 2026-11-27 实际升级记录
+
+本节记录后续实际执行结果；下方“一”至“七”保留 11 月 25 日交付时的状态，不能把其中“待部署／默认 v3”当成当前状态。四笔交易均由用户使用 Account 1 在 MetaMask 审阅、签名并显式广播；确认工具只读取公开链并生成本地证明。
+
+| 阶段 | 已确认交易 | 区块 | 实际手续费（tCKB） |
+| --- | --- | --- | ---: |
+| Registry code，46,728 tCKB 代码容量 | `0x3aed91b51165ae831e4422d017fd280bd78e2247bcd4a1410520fecca39968a8` | `0x161f1e3` | 0.00047210 |
+| Registry state，386 tCKB 初始容量 | `0xc8113a4525db462182e5260387bb8b392b0c084a8bb2e3eef30f7a48be83ea39` | `0x161f1fc` | 0.00000942 |
+| 三代码批次，新增占用 300,176 tCKB | `0xc6acb017d2d77dd7e40e92eceaecd4b3e56320b90b403db543fa66e3509fb35a` | `0x161fbf7` | 0.00485258 |
+| 协议配置，仅更新 Tip/Funding 身份与 Unix 秒时间戳 | `0xbdf4775f72c4238db2d7d300abd92aef8ac7b5147caaed2fa51367fb769a8454` | `0x161fd17` | 0.00001553 |
+
+总新增存储占用 **347,290 tCKB**，四笔实际手续费合计 **0.00534963 tCKB**。存储占用与手续费分开计算；原 QA ProtocolLock 的代码容量已计入三代码批次的净增量，没有重复计费。
+
+完整 raw body、实际父交易、TypeID、owner、ELF 字节与 hash、容量、六个输出当前 live、实际协议最小 delta、Indexer 高度和完整旧 Tip/Funding 命名空间检查均通过，才生成 v4。三代码和最终配置的 canonical hash 另由第二官方节点比对；其最终 live 请求超时，不冒充该节点完成了 live 证明。第一节点完整确认已建立该证明。
+
+发布的公开配置为 [ckboost-testnet-admin-v4.json](../dapp/config/qa/ckboost-testnet-admin-v4.json)，profile hash `0x4faf44b759bbcd6218fdb86acb3a27b28c1d41a867c21a60d0b169745563ee06`。`pnpm qa` 使用该固定 v4；原 v3 文件逐字节保留作为验证祖先。QA 协议仍为 `4eac…e034`，新增 Registry 仍为 `97e23…9690`。TipType 为 `bd7ab860…094237`，FundingLock 为 `02d6e493…219707`，QA ProtocolLock 保留原 TypeID `e91b5a78…d28815`。生产配置、共享部署记录和 `.env.local` 没有修改。
+
+升级后再次对当前 live 数据只读核验：原测试活动 `8a05055c…9bad32`、Account 3 的 owner、Account 4 的 Reviewer、Account 2 的原 UserCell 和 **1 Point** 均保留；活动和 UserCell 的原 outpoint/data 未改变。新 Registry 初始 revision=0，阈值 1,000/5,000/10,000 CKB、有效期 30 天、Approver 为 Account 3。Organizer 身份本身不授予 Tip 背书权。
+
+金融签名页 `/revamp/testnet-admin-financial-sign` 将审阅、签名保存、单次显式广播和确认分开。已保存广播尝试后只能查原回执，不重新签发；刷新保留已签字节。当前新能力真实钱包验收仍需逐项执行：手工验证、奖励周期、Tip 首审与指定 Approver 后续背书、资金与支付等。合约确认和只读数据保留通过，不等于这些流程已全部通过。
+
+签名页初版全量 dapp Jest 131 suites / 1,127 tests 通过。最终审查补充广播实际边界的账户、客户端、scope 与完整签名字节校验，保留 CCC 的手续费校验及缓存；相关 4 suites / 81 tests 通过，包含 6 个新增回归场景。发布配置与 QA 工具 85 项 Node tests、最终同一 v4 的 production build 通过；实际启动验证也修复了新版 pnpm 需要明确 Netlify 可执行文件的问题。历史 6 项类型诊断的界限仍见下方第六节。
+
+最终 v4 浏览器路由检查为 **15/15 通过**：五模块分别在 375 Dark、1440 Dark、1920 Light 访问，零 page/console error、零 HTTP 资源失败、零整页横溢出。实际下载 JS 含 4faf profile，捕获的 45 次协议查询全部匹配完整 QA 脚本。独立无钱包 Chromium 的 30 次官方 WebSocket 连接被检查脚本主动阻断；不把该项称为完整网络可用性或已登录 Admin 数据视图验收。所有临时浏览器均已关闭。
+
+## 11 月 25 日交付时记录（历史）
+
 本记录覆盖新版 Admin 的 Overview、Campaigns、Users、Tipping、Rewards & Recognition 五个模块，以及配套的独立 QA 金融合约候选。五模块页面与数据、操作接口已实现；这不代表所有新能力已经在链上启用，也不代表五模块的每个按钮都经过真实钱包端到端验收。
 
 **本轮新增能力仅面向独立 Testnet QA 协议。** 当前默认 QA v3 不因这份交付记录、构建产物或环境变量自动切换；线上配置、共享部署记录和旧合约代码 Cell 保持原样。本轮金融升级仅完成源码、ELF、离线/VM 测试和公开只读提案，没有签名、广播、部署、激活、PR 或合并。本项目此前已有的 QA 真实交易不属于本轮新增金融能力的通过证据。

@@ -65,16 +65,16 @@ Browser acceptance compares the supplied desktop frames and checks narrow layout
 
 ## Five-module Admin implementation
 
-The current five-module delivery, exact candidate code pins, tests, pending
-chain activation, data-preservation rules and upgrade order are documented in
+The five-module delivery, exact code pins, confirmed November 27 QA upgrade,
+data-preservation rules and remaining wallet acceptance are documented in
 [the 2026-11-25 delivery record](../../../docs/revamp-admin-delivery-2026-11-25.md).
 The earlier [Overview notes](../../lib/revamp/admin-README.md) describe its read
 architecture. New role/approval/settings writes fail closed outside the exact
 isolated QA protocol. Registry-backed manual verification/periods and the new
-financial rules remain unavailable until the corresponding confirmed code,
-state, protocol configuration and explicit local runtime all match. The
-committed default QA v3 profile is unchanged; a build alone does not activate
-these capabilities.
+financial rules require matching confirmed code, state, protocol configuration
+and runtime. The published default QA v4 profile supplies that release evidence;
+the application still validates current state and authority before writes. The
+original v3 profile remains an immutable ancestor. A build never deploys code.
 
 ## Personal profile implementation
 
@@ -183,7 +183,7 @@ public runtime. Verify these identities in its output:
 | Identity | Expected value |
 | --- | --- |
 | Protocol | `0x4eacaf9b1a120d2bfd99f26fcedfdcfe6ef116484e9b478b0a104a872316e034` |
-| Runtime profile | `0x129cd99c43113ab92b4ec5331693c402dd1f40b9269fff6c223ad4d3c201b297` |
+| Runtime profile | `0x4faf44b759bbcd6218fdb86acb3a27b28c1d41a867c21a60d0b169745563ee06` |
 | User Type | `0xecc4b989dc3bfc2f80e22226d14b4b04257e8f4bf3d8298f80619b798e12cb2c` |
 | Executor | `http://127.0.0.1:9091/` |
 
@@ -230,12 +230,13 @@ each owned foreground process with Ctrl+C when finished.
 `qa:check` checks local prerequisites and executor reachability; it is not a new
 live-chain acceptance result. The build and server use the same derived public
 environment. Per-machine paths and build records stay in `.qa-local/`, and
-Next output stays in `.next-isolated-129cd99c4311/`. Neither directory belongs
+Next output stays in `.next-isolated-4faf44b759bb/`. Neither directory belongs
 in Git. Do not replace `deployments.json`, copy another machine's generated
 Netlify config, or enable the deployment workbench to join this environment.
 
-The committed `config/qa/ckboost-testnet.json` contains public on-chain identities
-and deployment provenance, including historical creation manifests. Its
+The published `config/qa/ckboost-testnet-admin-v4.json` contains public on-chain
+identities and confirmed upgrade provenance. The original
+`config/qa/ckboost-testnet.json` is retained as its immutable v3 ancestor. The v4
 `current` records select the upgraded QA code. Initialization data is not a
 snapshot of today's roles or campaigns: the app loads current business state
 from the chain. Do not hand-edit its ancestry or profile hash. A later QA code

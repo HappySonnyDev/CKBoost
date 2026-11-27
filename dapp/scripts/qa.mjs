@@ -6,9 +6,11 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createConnection, createServer } from 'node:net';
+import { QA_DEFAULT_PROFILE, QA_BASE_PROFILE_HASH, QA_PROFILE_PROTOCOL_HASH, validateQaPublishedRuntime } from './qa-profile.mjs';
 
-export const QA_PROFILE_HASH = '0x129cd99c43113ab92b4ec5331693c402dd1f40b9269fff6c223ad4d3c201b297';
-export const QA_PROTOCOL_HASH = '0x4eacaf9b1a120d2bfd99f26fcedfdcfe6ef116484e9b478b0a104a872316e034';
+export { QA_BASE_PROFILE_HASH } from './qa-profile.mjs';
+export const QA_PROFILE_HASH = QA_DEFAULT_PROFILE.profileHash;
+export const QA_PROTOCOL_HASH = QA_PROFILE_PROTOCOL_HASH;
 export const NETLIFY_CLI_VERSION = '27.20.0';
 export const PORTS = Object.freeze({ browser: 9004, next: 9005, functions: 9994 });
 const APP_DIRECTORY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -33,8 +35,11 @@ export function qaEnvironment(config, runtime) {
 }
 export function qaPaths(dappDirectory = APP_DIRECTORY, profileHash = QA_PROFILE_HASH, profileFile, adminProfile = false) {
   assert(/^0x[0-9a-f]{64}$/.test(profileHash), 'A validated complete profile hash is required for local QA paths.');
-  const dapp = path.resolve(dappDirectory), local = path.join(dapp, '.qa-local', profileHash.slice(2));
-  return { dapp, profile: profileFile ?? path.join(dapp, 'config/qa/ckboost-testnet.json'), local, ...(adminProfile ? { adminProfile: true } : {}),
+  // A local release selection and the published default can have the same
+  // profile hash but different internal Netlify commands. Keep their metadata
+  // and receipts separate while both retain the exact profile-derived dist.
+  const dapp = path.resolve(dappDirectory), local = path.join(dapp, '.qa-local', `${adminProfile ? '' : 'published-'}${profileHash.slice(2)}`);
+  return { dapp, profile: profileFile ?? path.join(dapp, QA_DEFAULT_PROFILE.file), local, ...(adminProfile ? { adminProfile: true } : {}),
     runtime: path.join(local, 'runtime-config.json'), environment: path.join(local, 'process-env.json'),
     netlify: path.join(local, 'netlify.toml'), receipt: path.join(local, 'built-profile.json'),
     next: path.join(dapp, 'node_modules/next/dist/bin/next'), functions: path.join(dapp, 'netlify/functions'),
@@ -51,7 +56,7 @@ export function netlifyConfiguration(paths) {
     '\n[[redirects]]\nfrom = "/api/verification/*"\nto = "/.netlify/functions/verification-api/:splat"\nstatus = 200\n';
 }
 export function netlifyCommand(paths) {
-  return { command: 'pnpm', args: ['dlx', `netlify-cli@${NETLIFY_CLI_VERSION}`, 'dev', '--cwd', paths.local, '--functions', paths.functions, '--offline', '--no-open', '--skip-gitignore', '--internal-disable-edge-functions', '--framework', '#custom', '--port', String(PORTS.browser), '--target-port', String(PORTS.next), '--functions-port', String(PORTS.functions)], cwd: paths.local };
+  return { command: 'pnpm', args: [`--package=netlify-cli@${NETLIFY_CLI_VERSION}`, 'dlx', 'netlify', 'dev', '--cwd', paths.local, '--functions', paths.functions, '--offline', '--no-open', '--skip-gitignore', '--internal-disable-edge-functions', '--framework', '#custom', '--port', String(PORTS.browser), '--target-port', String(PORTS.next), '--functions-port', String(PORTS.functions)], cwd: paths.local };
 }
 
 async function readJson(file, io) {
@@ -109,15 +114,15 @@ export function createQaLauncher({ dappDirectory = APP_DIRECTORY, io = fs, runne
     let profile;
     const profileFile = adminProfile ? path.join(paths.dapp, '.qa-local/admin-upgrade/active-runtime.json') : paths.profile;
     try { profile = await readJson(profileFile, io); }
-    catch (cause) { throw new Error(`${adminProfile ? 'No explicitly selected confirmed Admin v4 profile exists. Run qa-admin confirm, then qa-admin activate.' : 'The committed public QA profile config/qa/ckboost-testnet.json could not be loaded.'} No fallback is allowed. ${cause.message}`); }
+    catch (cause) { throw new Error(`${adminProfile ? 'No explicitly selected confirmed Admin v4 profile exists. Run qa-admin confirm, then qa-admin activate.' : `The committed public QA profile ${QA_DEFAULT_PROFILE.file} could not be loaded.`} No fallback is allowed. ${cause.message}`); }
     let runtime;
     try { runtime = await (runtimeLoader ? runtimeLoader() : import(pathToFileURL(path.join(paths.dapp, 'lib/ckb/isolated-runtime.mjs')).href)); }
     catch (cause) { throw new Error(`QA runtime dependencies could not be loaded. ${PREPARE} ${cause.message}`); }
-    const config = runtime.validateIsolatedRuntimeConfig(profile);
+    const config = adminProfile ? runtime.validateIsolatedRuntimeConfig(profile) : validateQaPublishedRuntime(QA_DEFAULT_PROFILE, profile, runtime);
     if (adminProfile) {
-      assert(config.schema === 'ckboost-isolated-testnet-runtime/v4' && config.sources.adminParentProfileHash === QA_PROFILE_HASH && config.protocol.typeHash === QA_PROTOCOL_HASH, 'Only an independently confirmed Admin v4 profile derived from the exact 129c parent may be selected. No default fallback is permitted.');
+      assert(config.schema === 'ckboost-isolated-testnet-runtime/v4' && config.sources.adminParentProfileHash === QA_BASE_PROFILE_HASH && config.protocol.typeHash === QA_PROTOCOL_HASH, 'Only an independently confirmed Admin v4 profile derived from the exact 129c parent may be selected. No default fallback is permitted.');
       paths = qaPaths(dappDirectory, config.profileHash, profileFile, true);
-    } else assert(config.schema === 'ckboost-isolated-testnet-runtime/v3' && config.profileHash === QA_PROFILE_HASH && config.protocol.typeHash === QA_PROTOCOL_HASH, 'Only the committed verified 129c QA v3 profile for protocol 4eac is supported. No old/default profile fallback is permitted.');
+    }
     const env = qaEnvironment(config, runtime), toml = netlifyConfiguration(paths);
     return { paths, config, env, toml, summary: { schema: 'ckboost-portable-qa-plan/v1', mode: 'explicit-testnet-qa', profileFile: paths.profile, profileHash: config.profileHash, protocolTypeHash: config.protocol.typeHash, userTypeCodeHash: config.current.testnet.ckboostUserType.typeHash, projectDirectory: paths.dapp, localDirectory: paths.local, distDir: env.CKBOOST_NEXT_DIST_DIR, rpcUrl: config.rpcUrl, executorUrl: config.executorUrl, ports: PORTS, browserUrl: 'http://localhost:9004/revamp', netlifyCliVersion: NETLIFY_CLI_VERSION, setupEnabled: false, ssriRequirement: 'Run node scripts/ssri-qa.mjs start separately. check/build/start require TCP reachability at 127.0.0.1:9091; that check does not prove executor compatibility or code-cell liveness.', publicNetworkBoundary: 'This profile scopes shared public Testnet state and shared Nostr relays; it is not a private chain or a separate relay service.', filesWritten: false, processesStarted: false, networkChecks: false } };
   }
@@ -146,7 +151,7 @@ export function createQaLauncher({ dappDirectory = APP_DIRECTORY, io = fs, runne
     try { old = JSON.parse(existing); } catch { throw new Error('Generated QA file differs: process-env.json. Inspect it and rebuild; no fallback is allowed.'); }
     const keys = ['NEXT_PUBLIC_CKBOOST_ADMIN_REGISTRY', 'NEXT_PUBLIC_CKBOOST_ADMIN_TIPPING'];
     const migrated = old && typeof old === 'object' && !Array.isArray(old) && keys.every(key => !Object.hasOwn(old, key) && value.env[key] === '') && canonical({ ...old, ...Object.fromEntries(keys.map(key => [key, ''])) }) === canonical(value.env);
-    assert(migrated && value.config.schema === 'ckboost-isolated-testnet-runtime/v3' && value.config.profileHash === QA_PROFILE_HASH, 'Generated QA file differs: process-env.json. Only the exact v3 addition of two empty capability keys may migrate automatically.');
+    assert(migrated && value.config.schema === 'ckboost-isolated-testnet-runtime/v3' && value.config.profileHash === QA_BASE_PROFILE_HASH, 'Generated QA file differs: process-env.json. Only the exact v3 addition of two empty capability keys may migrate automatically.');
     const temporary = `${paths.environment}.migration-${process.pid}-${Date.now()}`;
     try {
       await io.writeFile(temporary, content, { flag: 'wx', mode: 0o600 });

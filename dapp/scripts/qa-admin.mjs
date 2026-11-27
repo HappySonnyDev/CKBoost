@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-// Explicit Admin QA commands. The ordinary `qa` command/default public v3
-// profile remain unchanged. No wallet/provider/sign/send/estimate operation.
+// Optional release confirmation/local selection, separate from the published
+// `qa` default. No wallet/provider/sign/send/estimate operation.
 import {promises as fs,constants} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 const APP=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const assert=(ok,message)=>{if(!ok)throw Error(message);};
 const json=value=>`${JSON.stringify(value,null,2)}\n`;
-const usage='Usage:\n  node scripts/qa-admin.mjs confirm --financial-tx 0x<hash> --protocol-tx 0x<hash>\n  node scripts/qa-admin.mjs activate 0x<confirmed-profile-hash>\n  node scripts/qa-admin.mjs plan|check|build|start\nConfirmation and local selection never sign, broadcast, estimate scripts or restart services. Default qa/v3 config is unchanged.';
+const usage='Usage:\n  node scripts/qa-admin.mjs confirm --financial-tx 0x<hash> --protocol-tx 0x<hash>\n  node scripts/qa-admin.mjs activate 0x<confirmed-profile-hash>\n  node scripts/qa-admin.mjs plan|check|build|start\nConfirmation and local selection never sign, broadcast, estimate scripts or restart services. Neither the immutable v3 base nor the published qa default is changed. Ordinary pnpm qa needs no activation.';
 export function parseAdminArguments(argv){
   if(argv.length===5&&argv[0]==='confirm'&&argv[1]==='--financial-tx'&&argv[3]==='--protocol-tx'&&[argv[2],argv[4]].every(v=>/^0x[0-9a-f]{64}$/i.test(v)))return {action:'confirm',financialHash:argv[2].toLowerCase(),protocolHash:argv[4].toLowerCase()};
   if(argv.length===2&&argv[0]==='activate'&&/^0x[0-9a-f]{64}$/i.test(argv[1]))return {action:'activate',profileHash:argv[1].toLowerCase()};
@@ -31,7 +31,7 @@ export async function selectConfirmedAdminProfile(profileHash,{dappDirectory=APP
   const target=path.join(directory,'active-runtime.json');
   try{const stat=await fs.lstat(target);assert(stat.isFile()&&!stat.isSymbolicLink(),'Refuse an unexpected existing local profile selection.');}catch(error){if(error.code!=='ENOENT')throw error;}
   const temporary=path.join(directory,`active-runtime-${Date.now()}-${Math.random().toString(16).slice(2)}.json`);await fs.writeFile(temporary,json(saved),{flag:'wx',mode:0o600});await fs.rename(temporary,target);
-  return {selectedLocalProfile:true,profileHash,profileFile:target,defaultV3Unchanged:true,processesStarted:false,didSign:false,didBroadcast:false,message:'Local v4 selection is recorded. Run qa-admin build, then qa-admin start explicitly. No running service was changed.'};
+  return {selectedLocalProfile:true,profileHash,profileFile:target,baseV3Unchanged:true,publishedDefaultUnchanged:true,processesStarted:false,didSign:false,didBroadcast:false,message:'Local v4 selection is recorded. Run qa-admin build, then qa-admin start explicitly. No running service was changed.'};
 }
 export async function main(argv=process.argv.slice(2)){
   const args=parseAdminArguments(argv);let result;

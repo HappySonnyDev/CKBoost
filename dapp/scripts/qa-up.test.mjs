@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runQaUp, createOwnedSupervisor, stopOwnedGroup, oneCommandPlan, main } from './qa-up.mjs';
 import { SSRI_IMAGE } from './ssri-qa.mjs';
+import { QA_PROFILE_HASH } from './qa.mjs';
 
 const DAPP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fixedPorts = [9004, 9005, 9994, 9090, 9091];
@@ -57,7 +58,7 @@ function cleaned(h) {
 
 test('one-command plan fixes the verified profile, ports and no-sign/no-publish scope', () => {
   const plan = oneCommandPlan();
-  assert.equal(plan.profileHash, '0x129cd99c43113ab92b4ec5331693c402dd1f40b9269fff6c223ad4d3c201b297');
+  assert.equal(plan.profileHash, QA_PROFILE_HASH);
   assert.equal(plan.browserUrl, 'http://localhost:9004/revamp'); assert.deepEqual(plan.ports, fixedPorts);
   assert.equal(plan.signsOrBroadcasts, false); assert.equal(plan.publishesWebsite, false); assert.equal(plan.preparesAndBuildsEveryRun, true);
 });

@@ -5,8 +5,10 @@ import path from 'node:path';
 import os from 'node:os';
 import { createQaLauncher, main, netlifyCommand, qaPaths, requireSupportedNode, QA_PROFILE_HASH, QA_PROTOCOL_HASH, PORTS } from './qa.mjs';
 import * as runtime from '../lib/ckb/isolated-runtime.mjs';
+import { QA_DEFAULT_PROFILE, QA_BASE_PROFILE_HASH } from './qa-profile.mjs';
 
-const publicProfile = JSON.parse(await fs.readFile(new URL('../config/qa/ckboost-testnet.json', import.meta.url), 'utf8'));
+const publicProfile = JSON.parse(await fs.readFile(new URL(`../${QA_DEFAULT_PROFILE.file}`, import.meta.url), 'utf8'));
+const baseProfile = JSON.parse(await fs.readFile(new URL('../config/qa/ckboost-testnet.json', import.meta.url), 'utf8'));
 const serialize = value => `${JSON.stringify(value, null, 2)}\n`;
 
 async function fixture(t, options = {}) {
@@ -55,6 +57,7 @@ test('plan uses the verified public profile without writes, spawning or socket c
   assert.deepEqual(f.ports, []);
   assert.equal(f.checks, 0);
   assert.deepEqual(f.opens, [f.paths.profile]);
+  assert.equal(path.basename(f.paths.local), `published-${QA_PROFILE_HASH.slice(2)}`);
   await assert.rejects(fs.stat(f.paths.local), { code: 'ENOENT' });
   assert.match(value.summary.publicNetworkBoundary, /shared public Testnet.*shared Nostr/);
 });
@@ -68,7 +71,7 @@ test('generated Netlify paths are portable and the shell command contains no che
   const command = netlifyCommand(f.paths);
   assert.equal(command.command, 'pnpm');
   assert.equal(command.cwd, f.paths.local);
-  assert.deepEqual(command.args.slice(0, 3), ['dlx', 'netlify-cli@27.20.0', 'dev']);
+  assert.deepEqual(command.args.slice(0, 4), ['--package=netlify-cli@27.20.0', 'dlx', 'netlify', 'dev']);
   for (const argument of ['--offline', '--no-open', '--internal-disable-edge-functions']) assert.ok(command.args.includes(argument));
   assert.equal(command.args[command.args.indexOf('--functions') + 1], f.paths.functions);
   assert.equal(command.args[command.args.indexOf('--cwd') + 1], f.paths.local);
@@ -86,7 +89,10 @@ test('public environment is fixed to QA scope, setup disabled and Organizer auth
   assert.equal(env.CKBOOST_ENABLE_TESTNET_SETUP, '0');
   assert.equal(env.NODE_ENV, 'production');
   assert.equal(env.NEXT_PUBLIC_CKBOOST_ORGANIZER_AUTH_LOCK_HASHES, '0xe91b5a78463c293318331c21d372e031eb9ffad87b379fbe0563222fcdd28815');
-  assert.equal(env.CKBOOST_NEXT_DIST_DIR, '.next-isolated-129cd99c4311');
+  assert.equal(env.CKBOOST_NEXT_DIST_DIR, '.next-isolated-4faf44b759bb');
+  assert.equal(config.sources.adminParentProfileHash, QA_BASE_PROFILE_HASH);
+  assert.equal(JSON.parse(env.NEXT_PUBLIC_CKBOOST_ADMIN_REGISTRY).protocolTypeHash, QA_PROTOCOL_HASH);
+  assert.equal(JSON.parse(env.NEXT_PUBLIC_CKBOOST_ADMIN_TIPPING).registryTypeHash, '0x97e23b14d33e0445c1eac09f1948e2c3652547bfbb7fb7db56978f48baff9690');
   assert.deepEqual(JSON.parse(env.NEXT_PUBLIC_CKBOOST_ISOLATED_RUNTIME_PROFILE), config);
   assert.deepEqual(JSON.parse(env.NEXT_PUBLIC_CKBOOST_CURRENT_DEPLOYMENTS), config.current);
 });
@@ -102,6 +108,8 @@ test('missing prepared dependency fails before importing runtime or creating loc
 
 test('missing or tampered profile has no default or historical deployment fallback', async t => {
   const f = await fixture(t);
+  // A valid base file remains present, but missing v4 must never select it.
+  await fs.writeFile(path.join(f.paths.dapp, 'config/qa/ckboost-testnet.json'), serialize(baseProfile));
   await fs.rm(f.paths.profile);
   await assert.rejects(f.launcher.plan(), /public QA profile.*No fallback/);
   const tampered = structuredClone(publicProfile);
@@ -112,12 +120,23 @@ test('missing or tampered profile has no default or historical deployment fallba
   await assert.rejects(fs.stat(f.paths.local), { code: 'ENOENT' });
 });
 
-test('a valid ancestral v2 runtime is also rejected by this fixed v3 launcher', async t => {
+test('same-hash local Admin selection cannot overwrite published launcher metadata', async t => {
+  const f = await fixture(t), selected = qaPaths(f.paths.dapp, QA_PROFILE_HASH, '/local/selection.json', true);
+  assert.notEqual(f.paths.local, selected.local);
+  assert.notEqual(f.paths.receipt, selected.receipt);
+  assert.equal(f.paths.dist, selected.dist);
+  await f.launcher.plan();
+  assert.deepEqual(f.calls, []);
+});
+
+test('valid ancestral v2 and v3 runtimes cannot replace the published v4 release', async t => {
   const f = await fixture(t);
   const original = runtime.makeIsolatedRuntimeConfig(publicProfile.sources.protocolManifest, publicProfile.sources.protocolCodeManifest, publicProfile.sources.campaignCodeManifest, publicProfile.sources.profile);
   const v2 = runtime.makeIndependentUserRuntimeConfig(original, publicProfile.sources.userCodeDeploymentManifest);
   await fs.writeFile(f.paths.profile, serialize(v2));
-  await assert.rejects(f.launcher.plan(), /No old\/default profile fallback/);
+  await assert.rejects(f.launcher.plan(), /no fallback/);
+  await fs.writeFile(f.paths.profile, serialize(baseProfile));
+  await assert.rejects(f.launcher.plan(), /no fallback/);
   assert.deepEqual(f.calls, []);
 });
 
@@ -200,15 +219,17 @@ test('a failed rebuild invalidates the successful build receipt', async t => {
   assert.equal(f.calls.length, 2);
 });
 
-test('the exact legacy v3 environment safely adds only two empty capability keys and invalidates its old receipt', async t => {
+test('v4 capability keys cannot enter by the legacy empty-key migration', async t => {
   const f = await fixture(t); await f.launcher.build();
   const current = JSON.parse(await fs.readFile(f.paths.environment, 'utf8')), old = { ...current };
   delete old.NEXT_PUBLIC_CKBOOST_ADMIN_REGISTRY; delete old.NEXT_PUBLIC_CKBOOST_ADMIN_TIPPING;
   await fs.writeFile(f.paths.environment, serialize(old));
-  f.failBuild(); await assert.rejects(f.launcher.build(), /simulated failed build/);
-  assert.deepEqual(JSON.parse(await fs.readFile(f.paths.environment, 'utf8')), current);
-  assert.equal(current.NEXT_PUBLIC_CKBOOST_ADMIN_REGISTRY, ''); assert.equal(current.NEXT_PUBLIC_CKBOOST_ADMIN_TIPPING, '');
-  await assert.rejects(fs.stat(f.paths.receipt), { code: 'ENOENT' });
+  const receipt = await fs.readFile(f.paths.receipt, 'utf8');
+  await assert.rejects(f.launcher.build(), /Only the exact v3 addition/);
+  assert.deepEqual(JSON.parse(await fs.readFile(f.paths.environment, 'utf8')), old);
+  assert.notEqual(current.NEXT_PUBLIC_CKBOOST_ADMIN_REGISTRY, ''); assert.notEqual(current.NEXT_PUBLIC_CKBOOST_ADMIN_TIPPING, '');
+  assert.equal(await fs.readFile(f.paths.receipt, 'utf8'), receipt);
+  assert.equal(f.calls.length, 1);
 });
 
 test('legacy environment migration rejects any other public value change and leaves old metadata intact', async t => {
