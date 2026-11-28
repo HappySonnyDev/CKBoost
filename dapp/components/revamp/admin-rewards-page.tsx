@@ -13,5 +13,5 @@ export function AdminRewardsPage(){
 }
 export function AdminNewRewardPeriodPage(){
   const workspace=useAdminRewards({tab:"leaderboard",formOnly:true});
-  return <RevampSiteShell><AdminRewardPeriodForm scopeKey={workspace.scopeKey} access={workspace.access} accessError={workspace.accessError} assets={workspace.assets} registryAvailable={workspace.registryAvailable} registryUnavailableReason={workspace.registryUnavailableReason} operation={workspace.periodOperation} onSave={workspace.onSavePeriod} onRetry={()=>{workspace.onRetryAccess();workspace.onRetryPeriods();}} onConnect={workspace.onConnect}/></RevampSiteShell>;
+  return <RevampSiteShell><AdminRewardPeriodForm scopeKey={workspace.scopeKey} access={workspace.access} accessError={workspace.accessError} assets={workspace.assets} registryAvailable={workspace.registryAvailable} registryUnavailableReason={workspace.registryUnavailableReason} registryLoading={workspace.registryLoading} registryError={workspace.registryError} onRetryConfiguration={workspace.onRetryConfiguration} operation={workspace.periodOperation} onSave={workspace.onSavePeriod} onRetry={workspace.onRetryAccess} onConnect={workspace.onConnect}/></RevampSiteShell>;
 }

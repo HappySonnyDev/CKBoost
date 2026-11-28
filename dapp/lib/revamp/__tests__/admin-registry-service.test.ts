@@ -1,5 +1,5 @@
 import {ccc} from "@ckb-ccc/connector-react";
-import {adminUsersRegistryAdapter, readAdminRegistry, readProtocolAdminRegistry, saveAdminTipSettings,saveAdminRewardPeriod} from "../admin-registry-service";
+import {adminUsersRegistryAdapter, readAdminRegistry, readProtocolAdminRegistry, saveAdminTipSettings,saveAdminRewardPeriod,AdminRegistryPreviousUpdateConfirmedError} from "../admin-registry-service";
 import {decodeAdminRegistry, encodeAdminRegistry, registryCanonical, type AdminRegistryData} from "../admin-registry-model";
 import {adminUserFromCell, makeAdminVerificationPayload, readAdminUser} from "../admin-users-model";
 import {adminUsersFixture, userHash as h} from "./admin-users-fixtures";
@@ -100,6 +100,7 @@ describe("Admin registry deployment and manual proof", () => {
   });
   it("rejects a real old registry transaction falsely imported as the requested manual verification", async () => {
     const f = fixture(), tx = ccc.Transaction.from({outputs: [f.current().cellOutput], outputsData: [f.current().outputData]}); f.seedReceipt(tx);
+    f.setCurrent(ccc.Cell.from({outPoint:{txHash:tx.hash(),index:0},cellOutput:tx.outputs[0],outputData:tx.outputsData[0]}));
     await expect(adminUsersRegistryAdapter.save(f.scope, f.signer, f.payload, async () => {})).rejects.toThrow(/does not contain the requested change/); expect(mockSend).not.toHaveBeenCalled();
   });
   it("applies the same exact action readback rule to tip settings", async () => {
@@ -119,5 +120,90 @@ describe("Admin registry deployment and manual proof", () => {
     const f=fixture(),points={codeHash:h("6"),hashType:"type" as const,args:f.scope.protocolHash},request=period({id:ccc.Script.from(points).hash(),kind:"points",symbol:"Points",decimals:0,typeScript:points});
     mockBeforeSend=()=>{const {ProtocolData}=jest.requireActual("ssri-ckboost/types"),data=ProtocolData.decode(f.protocolCell.outputData);data.protocol_config.script_code_hashes.ckb_boost_points_udt_type_code_hash=h("7");jest.mocked(readDiscoveryProtocol).mockResolvedValue(ccc.Cell.from({...f.protocolCell,outputData:ccc.hexFrom(ProtocolData.encode(data))}));};
     await expect(saveAdminRewardPeriod(f.scope,f.signer,request,async()=>{})).rejects.toThrow(/permissions changed|no longer accepted/);expect(f.client.sendTransaction).not.toHaveBeenCalled();expect(localStorage.getItem(f.receiptKey)).toBeNull();
+  });
+  async function pendingManual(f:ReturnType<typeof fixture>){
+    jest.mocked(f.client.waitTransaction).mockResolvedValueOnce(undefined);
+    await expect(adminUsersRegistryAdapter.save(f.scope,f.signer,f.payload,async()=>{})).rejects.toThrow(/awaiting confirmation/);
+    const transaction=f.captured()!.clone(),saved=JSON.parse(localStorage.getItem(f.receiptKey)!);
+    mockSend.mockClear();jest.mocked(f.client.sendTransaction).mockClear();jest.mocked(f.client.waitTransaction).mockClear();
+    return {transaction,saved};
+  }
+  const ckbPeriod=()=>period({id:"ckb",kind:"ckb",symbol:"CKB",decimals:8});
+  it("a normal new send can start pending, wait for six confirmations, then prove its committed action in the same call",async()=>{
+    const f=fixture(),read=f.client.getTransaction,events:string[]=[];let committed=false;
+    f.client.getTransaction=jest.fn(async(...args)=>{events.push("get-transaction");if(!committed)return {status:"pending",transaction:f.captured()!} as Awaited<ReturnType<ccc.Client["getTransaction"]>>;return read(...args);});
+    jest.mocked(f.client.waitTransaction).mockImplementation(async()=>{events.push("wait-six");committed=true;return {} as Awaited<ReturnType<ccc.Client["waitTransaction"]>>;});
+    await expect(saveAdminRewardPeriod(f.scope,f.signer,ckbPeriod(),async()=>{})).resolves.toMatchObject({transactionHash:expect.any(String)});
+    expect(events).toEqual(["wait-six","get-transaction"]);expect(mockSend).toHaveBeenCalledTimes(1);expect(localStorage.getItem(f.receiptKey)).toBeNull();
+  });
+  it("a committed manual receipt is resolved read-only before a distinct period requires another explicit submit",async()=>{
+    const f=fixture(),{transaction}=await pendingManual(f),request=ckbPeriod();
+    expect((await adminUsersRegistryAdapter.read(f.scope)).attestations).toHaveLength(1);
+    expect(localStorage.getItem(f.receiptKey)).not.toBeNull(); // A read never clears an unproven receipt.
+    const error=await saveAdminRewardPeriod(f.scope,f.signer,request,async()=>{}).catch(error=>error);
+    expect(error).toBeInstanceOf(AdminRegistryPreviousUpdateConfirmedError);expect(error).toMatchObject({transactionHash:transaction.hash(),newChangeNotSubmitted:true});
+    expect(mockSend).not.toHaveBeenCalled();expect(f.client.sendTransaction).not.toHaveBeenCalled();expect(f.client.waitTransaction).not.toHaveBeenCalled();expect(localStorage.getItem(f.receiptKey)).toBeNull();
+    await expect(saveAdminRewardPeriod(f.scope,f.signer,request,async()=>{})).resolves.toMatchObject({transactionHash:expect.any(String)});
+    expect(mockSend).toHaveBeenCalledTimes(1);const current=decodeAdminRegistry(f.current().outputData);expect(current.periods).toEqual([request]);expect(current.attestations).toHaveLength(1);
+  });
+  it("a refreshed period's random ID cannot turn receipt reconciliation into a second publication",async()=>{
+    const f=fixture(),old=ckbPeriod();jest.mocked(f.client.waitTransaction).mockResolvedValueOnce(undefined);
+    await expect(saveAdminRewardPeriod(f.scope,f.signer,old,async()=>{})).rejects.toThrow(/awaiting confirmation/);
+    mockSend.mockClear();jest.mocked(f.client.sendTransaction).mockClear();const refreshed={...old,id:"another-random-period-id"};
+    await expect(saveAdminRewardPeriod(f.scope,f.signer,refreshed,async()=>{})).rejects.toBeInstanceOf(AdminRegistryPreviousUpdateConfirmedError);
+    expect(mockSend).not.toHaveBeenCalled();expect(f.client.sendTransaction).not.toHaveBeenCalled();expect(decodeAdminRegistry(f.current().outputData).periods).toEqual([old]);expect(localStorage.getItem(f.receiptKey)).toBeNull();
+  });
+  it.each(["pending","unknown","rejected","read-error"])("an old %s receipt is retained and a new period never signs or broadcasts",async status=>{
+    const f=fixture(),{transaction,saved}=await pendingManual(f);
+    f.client.getTransaction=jest.fn(async()=>{if(status==="read-error")throw Error("Public read unavailable");return status==="unknown"?undefined:{status,transaction} as Awaited<ReturnType<ccc.Client["getTransaction"]>>;});
+    await expect(saveAdminRewardPeriod(f.scope,f.signer,ckbPeriod(),async()=>{})).rejects.toThrow(/confirmed|unavailable/);
+    expect(mockSend).not.toHaveBeenCalled();expect(f.client.sendTransaction).not.toHaveBeenCalled();expect(f.client.waitTransaction).not.toHaveBeenCalled();expect(JSON.parse(localStorage.getItem(f.receiptKey)!)).toEqual(saved);
+  });
+  it("same-action recovery returns the original confirmed transaction without signing or sending again",async()=>{
+    const f=fixture(),{transaction}=await pendingManual(f);
+    await expect(adminUsersRegistryAdapter.save(f.scope,f.signer,f.payload,async()=>{})).resolves.toEqual({transactionHash:transaction.hash()});
+    expect(mockSend).not.toHaveBeenCalled();expect(f.client.sendTransaction).not.toHaveBeenCalled();expect(localStorage.getItem(f.receiptKey)).toBeNull();
+  });
+  it("a legitimate later Registry update is preserved when the next explicit period is eventually added",async()=>{
+    const f=fixture();await pendingManual(f);const next=decodeAdminRegistry(f.current().outputData),existing={...ckbPeriod(),id:"another-admin-period",name:"Already published"};
+    next.revision="2";next.tipping.expirationSeconds="43200";next.periods.push(existing);
+    const successor=ccc.Transaction.from({inputs:[{previousOutput:f.current().outPoint}],outputs:[ccc.CellOutput.from({lock:f.script,type:f.script},encodeAdminRegistry(next))],outputsData:[encodeAdminRegistry(next)]});
+    f.setCurrent(ccc.Cell.from({outPoint:{txHash:successor.hash(),index:0},cellOutput:successor.outputs[0],outputData:successor.outputsData[0]}));
+    await expect(saveAdminRewardPeriod(f.scope,f.signer,ckbPeriod(),async()=>{})).rejects.toBeInstanceOf(AdminRegistryPreviousUpdateConfirmedError);expect(mockSend).not.toHaveBeenCalled();
+    await expect(saveAdminRewardPeriod(f.scope,f.signer,ckbPeriod(),async()=>{})).resolves.toHaveProperty("transactionHash");
+    const current=decodeAdminRegistry(f.current().outputData);expect(current.revision).toBe("3");expect(current.tipping).toEqual(next.tipping);expect(current.attestations).toEqual(next.attestations);expect(current.periods).toEqual([existing,ckbPeriod()]);expect(mockSend).toHaveBeenCalledTimes(1);
+  });
+  it.each(["wrong-body","wrong-type","wrong-lock","wrong-protocol","wrong-result"])("a self-reported committed receipt with %s cannot be cleared for a new action",async failure=>{
+    const f=fixture(),data={...f.data,protocolTypeHash:failure==="wrong-protocol"?h("f"):f.scope.protocolHash},output=f.current().cellOutput.clone();
+    if(failure==="wrong-type")output.type=ccc.Script.from({...f.script,args:ccc.hexFrom(ccc.bytesConcat(h("f"),f.scope.protocolHash))});
+    if(failure==="wrong-lock")output.lock=f.lock;
+    const tx=ccc.Transaction.from({outputs:[output],outputsData:[encodeAdminRegistry(data)]});
+    f.seedReceipt(tx,failure==="wrong-body"?h("a"):tx.hash(),failure==="wrong-result"?h("f"):ccc.hashCkb(tx.outputsData[0]));
+    await expect(saveAdminRewardPeriod(f.scope,f.signer,ckbPeriod(),async()=>{})).rejects.toThrow(/independently confirmed|another protocol/);
+    expect(mockSend).not.toHaveBeenCalled();expect(f.client.sendTransaction).not.toHaveBeenCalled();expect(localStorage.getItem(f.receiptKey)).not.toBeNull();
+  });
+  it("a changed account during the old transaction read does not clear that account's receipt",async()=>{
+    const f=fixture(),{saved}=await pendingManual(f),read=f.client.getTransaction;
+    f.client.getTransaction=jest.fn(async(...args)=>{const value=await read(...args);jest.mocked(f.signer.getRecommendedAddressObj).mockResolvedValue(f.targetAddress);return value;});
+    await expect(saveAdminRewardPeriod(f.scope,f.signer,ckbPeriod(),async()=>{})).rejects.toThrow(/wallet or network changed/);
+    expect(mockSend).not.toHaveBeenCalled();expect(JSON.parse(localStorage.getItem(f.receiptKey)!)).toEqual(saved);
+  });
+  it("changed Registry code or current scope keeps the old receipt and blocks the new action",async()=>{
+    const f=fixture(),{saved}=await pendingManual(f);
+    f.client.findCellsPaged=jest.fn(async search=>({cells:ccc.Script.from(search.script).eq(f.script)?[f.current()]:[ccc.Cell.from({...f.code,outputData:"0xdeadbeef"})],lastCursor:"done"}));
+    await expect(saveAdminRewardPeriod(f.scope,f.signer,ckbPeriod(),async()=>{})).rejects.toThrow(/registry executable/);
+    await expect(saveAdminRewardPeriod(f.scope,f.signer,ckbPeriod(),async()=>{throw Error("Scope changed");})).rejects.toThrow(/Scope changed/);
+    expect(mockSend).not.toHaveBeenCalled();expect(JSON.parse(localStorage.getItem(f.receiptKey)!)).toEqual(saved);
+  });
+  it("storage removal failure retains the confirmed receipt and does not start another signing flow",async()=>{
+    const f=fixture(),{saved}=await pendingManual(f),remove=jest.spyOn(Storage.prototype,"removeItem").mockImplementation(()=>{throw Error("Receipt storage is read-only");});
+    await expect(saveAdminRewardPeriod(f.scope,f.signer,ckbPeriod(),async()=>{})).rejects.toThrow(/read-only/);expect(mockSend).not.toHaveBeenCalled();expect(JSON.parse(localStorage.getItem(f.receiptKey)!)).toEqual(saved);
+    remove.mockRestore();await expect(saveAdminRewardPeriod(f.scope,f.signer,ckbPeriod(),async()=>{})).rejects.toBeInstanceOf(AdminRegistryPreviousUpdateConfirmedError);expect(mockSend).not.toHaveBeenCalled();
+  });
+  it("a receipt replaced during asynchronous proof is never cleared or overwritten",async()=>{
+    const f=fixture(),{saved}=await pendingManual(f),read=f.client.getTransaction,other={...saved,transactionHash:h("f")};
+    f.client.getTransaction=jest.fn(async(...args)=>{const value=await read(...args);localStorage.setItem(f.receiptKey,JSON.stringify(other));return value;});
+    await expect(saveAdminRewardPeriod(f.scope,f.signer,ckbPeriod(),async()=>{})).rejects.toThrow(/Conflicting registry receipts/);
+    expect(mockSend).not.toHaveBeenCalled();expect(JSON.parse(localStorage.getItem(f.receiptKey)!)).toEqual(other);
   });
 });

@@ -11,8 +11,8 @@ import styles from "./admin-rewards.module.css";
 
 export interface AdminRewardPeriodFormProps {
   scopeKey:string;access:"checking"|"disconnected"|"denied"|"allowed"|"error";accessError:string|null;
-  assets:RewardsResource<AdminRewardsAsset[]>;registryAvailable:boolean|null;registryUnavailableReason:string|null;
-  operation:RewardsOperation;onSave:(period:AdminRewardPeriod)=>Promise<{transactionHash:string}>;onRetry:()=>void;onConnect:()=>void;
+  assets:RewardsResource<AdminRewardsAsset[]>;registryAvailable:boolean|null;registryUnavailableReason:string|null;registryLoading:boolean;registryError:string|null;
+  operation:RewardsOperation;onSave:(period:AdminRewardPeriod)=>Promise<{transactionHash:string}>;onRetry:()=>void;onRetryConfiguration:()=>void;onConnect:()=>void;
 }
 export function AdminRewardPeriodForm(props:AdminRewardPeriodFormProps){
   const router=useRouter(),uid=useId(),form=useRef<HTMLFormElement>(null),periodId=useRef(""),currentScope=useRef(props.scopeKey);currentScope.current=props.scopeKey;
@@ -20,15 +20,18 @@ export function AdminRewardPeriodForm(props:AdminRewardPeriodFormProps){
   const busy=["preparing","signing","confirming"].includes(props.operation.phase);
   useEffect(()=>{periodId.current=`period-${Array.from(crypto.getRandomValues(new Uint8Array(16)),byte=>byte.toString(16).padStart(2,"0")).join("")}`;setDraft(newAdminRewardPeriodDraft());setErrors({});setSubmitError(null);},[props.scopeKey]);
   const assets=props.assets.data??[],asset=assets.find(item=>item.id===draft.assetId);
+  const configurationPending=props.registryLoading||props.registryAvailable===null&&!props.registryError;
+  const configurationReady=props.registryAvailable===true&&!props.registryLoading&&!props.registryError&&!props.assets.loading&&!props.assets.error;
+  const configurationError=props.registryError??props.assets.error??(props.registryAvailable===false?props.registryUnavailableReason??"Reward period storage is not configured for this protocol.":null);
   function change<K extends keyof AdminRewardPeriodDraft>(key:K,value:AdminRewardPeriodDraft[K]){setDraft(old=>({...old,[key]:value}));setErrors(old=>{const next={...old};delete next[key];return next;});}
   function preview(index:number){try{if(!asset)return"—";const total=parseRewardAmount(draft.totalAmount,asset.decimals),share=parseRewardAmount(draft.shares[index],2);if(total*share%10000n)return"—";return`${formatRewardAmount(total*share/10000n,asset.decimals)} ${asset.symbol}`;}catch{return"—";}}
   async function submit(event:FormEvent){
     event.preventDefault();if(busy)return;const capturedScope=props.scopeKey;setSubmitError(null);
+    if(!configurationReady){if(configurationError)setSubmitError(configurationError);return;}
     const result=await validateAdminRewardPeriod(draft,assets,periodId.current);
     if(currentScope.current!==capturedScope)return;
     setErrors(result.errors);
     if(!result.period){requestAnimationFrame(()=>form.current?.querySelector<HTMLElement>("[aria-invalid='true']")?.focus());return;}
-    if(props.registryAvailable!==true){setSubmitError(props.registryUnavailableReason??"Reward period storage is not available in this environment yet.");return;}
     try{await props.onSave(result.period);if(currentScope.current!==capturedScope)return;router.push(`/revamp/admin/rewards?${new URLSearchParams({tab:"leaderboard",period:result.period.id})}`);}catch(error){if(currentScope.current===capturedScope)setSubmitError(error instanceof Error?error.message:"The reward period could not be saved.");}
   }
   const error=(key:string)=>errors[key]?<p id={`${uid}-${key}-error`} className={styles.fieldError} role="alert">{errors[key]}</p>:null;
@@ -37,7 +40,7 @@ export function AdminRewardPeriodForm(props:AdminRewardPeriodFormProps){
     <nav className={styles.breadcrumbs} aria-label="Breadcrumb"><Link prefetch={false} href="/revamp/admin">Platform admin</Link><span aria-hidden="true">›</span><Link prefetch={false} href="/revamp/admin/rewards?tab=leaderboard">Rewards & Recognition</Link><span aria-hidden="true">›</span><span aria-current="page">New reward period</span></nav>
     <h1>New reward period</h1><p className={styles.formDescription}>Set the schedule, reward pool and distribution for a leaderboard period.</p>
     {props.access!=="allowed"?<section className={styles.notice} role="status"><p>{props.accessError??(props.access==="checking"?"Checking administrator access…":props.access==="disconnected"?"Connect your administrator wallet.":"Only current platform administrators can create reward periods.")}</p>{props.access==="disconnected"?<RevampButton onClick={props.onConnect}>Connect wallet</RevampButton>:props.access!=="checking"&&<button className={styles.retry} onClick={props.onRetry}>Retry access</button>}</section>:<form ref={form} className={styles.periodForm} onSubmit={event=>void submit(event)} noValidate>
-      {(props.registryAvailable===false||props.assets.error)&&<div className={styles.notice} role="status"><p>{props.assets.error??props.registryUnavailableReason}</p><p>Your form is not saved until its transaction confirms.</p><button className={styles.retry} type="button" onClick={props.onRetry}>Retry configuration</button></div>}
+      {(configurationPending||props.assets.loading||configurationError)&&<div className={styles.notice} role="status"><p>{configurationError??(configurationPending?"Checking reward period storage…":"Loading reward assets…")}</p><p>Your entries are kept while configuration loads or is retried. Nothing is saved until its transaction confirms.</p>{configurationError&&<button className={styles.retry} type="button" onClick={props.onRetryConfiguration}>Retry configuration</button>}</div>}
       <section className={styles.formBasics} aria-label="Period schedule and reward asset">{input("name","Period name",true)}
       <div className={styles.formRow}>{(["start","end"] as const).map(key=><div key={key} className={styles.field} role="group" aria-label={`${key==="start"?"Start":"End"} time`} aria-invalid={Boolean(errors[key])} aria-describedby={errors[key]?`${uid}-${key}-error`:undefined} data-invalid={Boolean(errors[key])}><label>{key==="start"?"Start time":"End time"} <span className={styles.required}>*</span></label><CreationDateTimeField label={key==="start"?"Start time":"End time"} value={draft[key]} timeZone={draft.timeZone} disabled={busy} onChange={value=>change(key,value)}/>{error(key)}</div>)}</div>
       <div className={styles.formRow}><div className={styles.field}><label>Reward asset</label><RevampSelect label="Reward asset" value={draft.assetId} disabled={busy||props.assets.loading} options={assets.map(item=>({value:item.id,label:item.symbol}))} onValueChange={value=>change("assetId",value)}/>{error("assetId")}</div>{input("totalAmount","Total prize pool",true)}</div></section>
@@ -47,7 +50,7 @@ export function AdminRewardPeriodForm(props:AdminRewardPeriodFormProps){
       {(submitError||props.operation.error)&&<p className={styles.error} role="alert">{submitError??props.operation.error}</p>}
       {props.operation.transactionHash&&<p className={styles.scopeNote}>Transaction: <code>{props.operation.transactionHash}</code></p>}
       {busy&&<p className={styles.notice} role="status">{props.operation.phase==="confirming"?"Waiting for transaction confirmation…":"Confirm the reward period in your wallet. Your form will be kept if it fails."}</p>}
-      <div className={styles.actions}><RevampButton variant="secondary" asChild><Link prefetch={false} href="/revamp/admin/rewards?tab=leaderboard" aria-disabled={busy} onClick={event=>{if(busy)event.preventDefault();}}>Cancel</Link></RevampButton><RevampButton type="submit" loading={busy} disabled={props.assets.loading}>Add reward period</RevampButton></div>
+      <div className={styles.actions}><RevampButton variant="secondary" asChild><Link prefetch={false} href="/revamp/admin/rewards?tab=leaderboard" aria-disabled={busy} onClick={event=>{if(busy)event.preventDefault();}}>Cancel</Link></RevampButton><RevampButton type="submit" loading={busy} disabled={!configurationReady}>Add reward period</RevampButton></div>
     </form>}
   </main>;
 }

@@ -91,12 +91,16 @@ export function useAdminRewards({tab="achievements",achievementId=null,periodId=
     }catch(error){if(current.current.sessionKey===captured.sessionKey)setPeriodState({key:stable,operation:{phase:"error",transactionHash:null,error:message(error)}});throw error;}finally{busy.current.delete(`period:${stable}`);}
   }
   return{scopeKey:sessionKey,access:access as "checking"|"disconnected"|"denied"|"allowed"|"error",accessError:error,tab,achievement,period,achievements,periods,
-    registryAvailable:periodList.data?.available??null,registryUnavailableReason:periodList.data?.unavailableReason??null,assets:resource(assetsQuery,allowed),
+    registryAvailable:periodList.data?.available??null,registryUnavailableReason:periodList.data?.available===false?periodList.data.unavailableReason:null,
+    registryLoading:periodList.loading,registryError:periodList.error,assets:resource(assetsQuery,allowed),
     metadata:resource(metadataQuery,Boolean(allowed&&tab==="achievements"&&achievement?.metadataNeventId)),provenance:resource(proofQuery,Boolean(allowed&&tab==="achievements"&&achievement?.claims.length)),users:resource(receiverQuery,Boolean(allowed&&achievements.data?.some(row=>row.claims.length))),
     currentLockHash:scope?.lockHash??null,network:configuration.network??"testnet",
     bonusDays:scope&&BigInt(scope.protocol.protocol_config.streak_bonus_interval)%86400n===0n?(BigInt(scope.protocol.protocol_config.streak_bonus_interval)/86400n).toString():"",bonusPoints:scope?BigInt(scope.protocol.protocol_config.streak_bonus_amount).toString():"",
     bonusOperation:bonusState?.key===operationKey?bonusState.operation:idle,periodOperation:periodState?.key===operationKey?periodState.operation:idle,
     onSaveBonus,onSavePeriod,onConnect:open,onRetryAccess:()=>{setRevision(value=>value+1);void protocol.refreshProtocolData().catch(()=>{});},
+    // Configuration reads have independent query state. Retrying them must not
+    // change the identity/session key used by the form's draft and period id.
+    onRetryConfiguration:()=>{if(allowed){void registry.refetch();void assetsQuery.refetch();}},
     onRetryAchievements:()=>{if(allowed)void definitions.refetch();},onRetryPeriods:()=>{if(allowed)void registry.refetch();},onRetryMetadata:()=>{if(allowed&&achievement?.metadataNeventId)void metadataQuery.refetch();},onRetryProvenance:()=>{if(allowed&&achievement?.claims.length)void proofQuery.refetch();},
   };
 }

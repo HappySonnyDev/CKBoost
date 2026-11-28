@@ -57,37 +57,106 @@ export async function readAdminRegistry(scope: ProfileReadScope, signal?: AbortS
 }
 async function freshAdmin(scope: ProfileReadScope, signer: ccc.Signer, check: () => Promise<void>) {
   await check();
+  const signerClient = signer.client;
   const actual = await signer.getRecommendedAddressObj();
   if (actual.script.hash() !== scope.lockHash || signer.client.addressPrefix !== (scope.network === "testnet" ? "ckt" : "ckb")) throw new Error("The Admin wallet or network changed.");
   const cell = await withProfileDeadline(signal => readDiscoveryProtocol(scope.client,scope.protocolCell.cellOutput.type!,signal));
   const data = ProtocolData.decode(cell.outputData);
-  if (cell.cellOutput.type?.hash() !== scope.protocolHash || !data.protocol_config.admin_lock_hash_vec.some(value => ccc.hexFrom(value) === scope.lockHash)) throw new Error("This wallet is no longer an administrator in the selected protocol.");
-  await check(); return {...scope,protocolCell:cell,protocol:data};
+  if (cell.cellOutput.type?.hash() !== scope.protocolHash || ccc.hexFrom(ProtocolData.encode(data)) !== cell.outputData || !data.protocol_config.admin_lock_hash_vec.some(value => ccc.hexFrom(value) === scope.lockHash)) throw new Error("This wallet is no longer an administrator in the selected protocol.");
+  await check();
+  const latest = await signer.getRecommendedAddressObj();
+  if (signer.client !== signerClient || latest.script.hash() !== scope.lockHash || signer.client.addressPrefix !== (scope.network === "testnet" ? "ckt" : "ckb")) throw new Error("The Admin wallet or network changed.");
+  return {...scope,protocolCell:cell,protocol:data};
 }
 type PendingRegistryWrite = {schema:"ckboost-admin-registry-pending/v1";transactionHash:ccc.Hex;resultHash:ccc.Hex;actionHash:ccc.Hex};
 const busy = new Set<string>();
 const pendingInMemory = new Map<string,PendingRegistryWrite>();
-function readPending(key: string): PendingRegistryWrite | null {
-  const memory = pendingInMemory.get(key); if (memory) return memory;
-  if (typeof localStorage === "undefined") return null;
-  const raw = localStorage.getItem(key); if (!raw) return null;
+function parsePending(raw: string): PendingRegistryWrite {
   if (raw.length > 2048) throw new Error("Invalid saved registry transaction. Inspect it before resubmitting.");
   const value = JSON.parse(raw) as PendingRegistryWrite;
   if (value.schema !== "ckboost-admin-registry-pending/v1") throw new Error("Unsupported saved registry transaction.");
   registryHash(value.transactionHash); registryHash(value.resultHash); registryHash(value.actionHash); return value;
+}
+const samePending = (a: PendingRegistryWrite, b: PendingRegistryWrite) => a.schema === b.schema && a.transactionHash === b.transactionHash && a.resultHash === b.resultHash && a.actionHash === b.actionHash;
+function readPending(key: string): PendingRegistryWrite | null {
+  const memory = pendingInMemory.get(key), raw = typeof localStorage === "undefined" ? null : localStorage.getItem(key);
+  const stored = raw ? parsePending(raw) : null;
+  if (memory && stored && !samePending(memory,stored)) throw new Error("Conflicting registry receipts exist. Inspect them before signing or clearing either update.");
+  const value = memory ?? stored;
+  if (value) pendingInMemory.set(key,value);
+  return value;
+}
+function clearPending(key: string, saved: PendingRegistryWrite) {
+  const current = readPending(key);
+  if (!current || !samePending(current,saved)) throw new Error("The registry receipt changed during confirmation. Nothing was cleared or submitted.");
+  // No asynchronous boundary between the storage identity check and removal.
+  // Keep the memory copy if removal fails or a conflicting receipt appears.
+  if (typeof localStorage !== "undefined") {
+    const raw = localStorage.getItem(key);
+    if (raw && !samePending(parsePending(raw),saved)) throw new Error("The stored registry receipt changed. Nothing was cleared or submitted.");
+    localStorage.removeItem(key);
+    if (localStorage.getItem(key) !== null) throw new Error("The confirmed registry receipt could not be cleared. Nothing new was submitted.");
+  }
+  pendingInMemory.delete(key);
+}
+export class AdminRegistryPreviousUpdateConfirmedError extends Error {
+  readonly newChangeNotSubmitted = true;
+  constructor(readonly transactionHash: ccc.Hex) {
+    super(`The previous registry update is confirmed: ${transactionHash}. This new change was not submitted. Review the current registry and reward periods, then explicitly submit again only if this is a distinct change.`);
+    this.name = "AdminRegistryPreviousUpdateConfirmedError";
+  }
+}
+async function confirmRegistryWrite(scope: ProfileReadScope, signer: ccc.Signer, saved: PendingRegistryWrite, script: ccc.Script, check: () => Promise<void>, verifiesAction?: (data: AdminRegistryData) => boolean, awaitConfirmation = false) {
+  await freshAdmin(scope,signer,check);
+  // A just-submitted transaction normally starts pending. Preserve the usual
+  // six-confirmation wait before reading its final committed body. Resolving a
+  // different old action is a quick read-only probe, never a new send or wait.
+  if (awaitConfirmation) {
+    const confirmed = await signer.client.waitTransaction(saved.transactionHash,6,300_000,2000);
+    if (!confirmed) throw new Error(`Registry update awaiting confirmation: ${saved.transactionHash}. Retry confirmation before signing again.`);
+    await check();
+  }
+  const response = await withProfileDeadline(() => scope.client.getTransaction(saved.transactionHash));
+  const tx = response?.transaction ? ccc.Transaction.fromBytes(response.transaction.toBytes()) : null;
+  const output = tx?.outputs[0], encoded = tx?.outputsData[0];
+  if (!response || response.status !== "committed" || response.blockNumber == null || !tx || tx.hash() !== saved.transactionHash || !output?.type?.eq(script) || !output.lock.eq(script) || tx.outputs.filter(value => value.type?.eq(script)).length !== 1 || !encoded || ccc.hashCkb(encoded) !== saved.resultHash) throw new Error("The registry update is not yet independently confirmed and indexed. Retry confirmation before submitting a new change.");
+  const committed = decodeAdminRegistry(encoded);
+  if (committed.protocolTypeHash !== scope.protocolHash) throw new Error("The confirmed registry update belongs to another protocol.");
+  const fresh = await freshAdmin(scope,signer,check), current = await withProfileDeadline(signal => readAdminRegistry(fresh,signal));
+  if (!current.available || !current.cell?.cellOutput.type?.eq(script) || !current.cell.cellOutput.lock.eq(script) || !current.data || current.data.protocolTypeHash !== scope.protocolHash || BigInt(current.data.revision) < BigInt(committed.revision) || current.data.revision === committed.revision && (current.cell.outPoint.txHash !== saved.transactionHash || current.cell.outPoint.index !== 0n || ccc.hashCkb(current.cell.outputData) !== saved.resultHash)) throw new Error("The confirmed registry update has no verified current state or legitimate successor. Retry confirmation.");
+  if (verifiesAction && (!verifiesAction(committed) || !verifiesAction(current.data))) throw new Error("The committed or current registry does not contain the requested change. Review current evidence before submitting again.");
+  // A stable Signer object may have changed accounts during the transaction or
+  // current-state reads. Such a read must never clear the previous Admin's key.
+  await freshAdmin(scope,signer,check);
+  await check();
 }
 /** Existing protocol/user/campaign cells are dependencies, never funding
  * inputs. Only this registry is replaced and ordinary signer capacity added. */
 async function saveRegistry(scope: ProfileReadScope, signer: ccc.Signer, action: unknown, update: (data: AdminRegistryData, fresh: ProfileReadScope) => Promise<void> | void, isCurrent: () => Promise<void>, verifiesAction: (data: AdminRegistryData) => boolean, validateTarget?: (fresh: ProfileReadScope) => Promise<void>): Promise<{transactionHash:string}> {
   const pin = pinFor(scope); if (!pin) throw new Error(MISSING);
   const script = ccc.Script.from(pin.typeScript), key = `ckboost:admin-registry-pending:${scope.network}:${scope.protocolHash}:${script.hash()}:${scope.lockHash}`;
+  const signerClient = signer.client, readClient = scope.client, protocolHash = scope.protocolHash, lockHash = scope.lockHash;
+  const checkCurrent = async () => {
+    await isCurrent();
+    const currentPin = pinFor(scope);
+    if (signer.client !== signerClient || scope.client !== readClient || scope.protocolHash !== protocolHash || scope.lockHash !== lockHash || !currentPin || !ccc.Script.from(currentPin.typeScript).eq(script) || !ccc.Script.from(currentPin.codeTypeScript).eq(pin.codeTypeScript) || currentPin.codeDataHash !== pin.codeDataHash) throw new Error("The wallet, protocol or registry scope changed. Nothing was cleared or submitted.");
+  };
   if (busy.has(key)) throw new Error("An Admin registry update is already in progress."); busy.add(key);
   try {
     const actionHash = ccc.hashCkb(ccc.bytesFrom(registryCanonical(action),"utf8"));
     let saved = readPending(key);
-    if (saved && saved.actionHash !== actionHash) throw new Error(`A previous registry update still needs confirmation: ${saved.transactionHash}. Confirm it before submitting a different change.`);
+    if (saved) {
+      const sameAction = saved.actionHash === actionHash;
+      await confirmRegistryWrite(scope,signer,saved,script,checkCurrent,sameAction ? verifiesAction : undefined,sameAction);
+      clearPending(key,saved);
+      if (sameAction) return {transactionHash:saved.transactionHash};
+      // A refreshed period form may have a new random id/action hash for an
+      // already published period. Resolving one receipt never authorizes a
+      // second signature in this click, even when the next action is different.
+      throw new AdminRegistryPreviousUpdateConfirmedError(saved.transactionHash);
+    }
     if (!saved) {
-      const fresh = await freshAdmin(scope,signer,isCurrent), previous = await withProfileDeadline(signal => readAdminRegistry(fresh,signal));
+      const fresh = await freshAdmin(scope,signer,checkCurrent), previous = await withProfileDeadline(signal => readAdminRegistry(fresh,signal));
       if (!previous.cell || !previous.data) throw new Error(MISSING);
       const next = decodeAdminRegistry(encodeAdminRegistry(previous.data)); await update(next,fresh); next.revision = (BigInt(next.revision)+1n).toString();
       const encoded = encodeAdminRegistry(next);
@@ -98,7 +167,7 @@ async function saveRegistry(scope: ProfileReadScope, signer: ccc.Signer, action:
       const tx = ccc.Transaction.from({inputs:[{previousOutput:previous.cell.outPoint}],outputs:[output],outputsData:[encoded],cellDeps:[{outPoint:codeCells[0].outPoint,depType:"code"},{outPoint:fresh.protocolCell.outPoint,depType:"code"}]});
       const initialPoint = point(previous.cell), initialData = ccc.hashCkb(previous.cell.outputData);
       const check = async () => {
-        const current = await freshAdmin(scope,signer,isCurrent);
+        const current = await freshAdmin(scope,signer,checkCurrent);
         const live = await scope.client.getCellLive(previous.cell!.outPoint);
         if (!live || point(live) !== initialPoint || ccc.hashCkb(live.outputData) !== initialData || !live.cellOutput.type?.eq(script)) throw new Error("The registry changed during preview. Reload before signing.");
         if (point(current.protocolCell) !== point(fresh.protocolCell) || ccc.hashCkb(current.protocolCell.outputData) !== ccc.hashCkb(fresh.protocolCell.outputData)) throw new Error("Protocol permissions changed while preparing this update.");
@@ -107,13 +176,14 @@ async function saveRegistry(scope: ProfileReadScope, signer: ccc.Signer, action:
       const {guardPrivilegedActorSigner,assertActorNetCapacitySpend} = await import("ssri-ckboost");
       const {sendTransactionWithFeeRetry} = await import("@/lib/ckb/transaction-wrapper");
       const expectedResultHash = ccc.hashCkb(encoded);
-      const remember = (transactionHash:ccc.Hex) => {
+      const remember = (transactionHash:ccc.Hex):PendingRegistryWrite => {
         if (saved && saved.transactionHash !== transactionHash) throw new Error(`A registry transaction was already submitted or attempted: ${saved.transactionHash}. Confirm it before signing another body.`);
         saved = {schema:"ckboost-admin-registry-pending/v1",transactionHash,resultHash:expectedResultHash,actionHash};
         pendingInMemory.set(key,saved);
         // Browser storage can be unavailable; retain the active session's exact
         // attempt even then. A receipt alone never passes the checks below.
         try {if (typeof localStorage !== "undefined") localStorage.setItem(key,JSON.stringify(saved));} catch {/* In-memory receipt prevents another send in this session. */}
+        return saved;
       };
       const observed = observeAdminTransactionAttempt(signer,async actual => {
         await check(); await assertActorNetCapacitySpend(signer,actual,scope.lockHash);
@@ -122,21 +192,11 @@ async function saveRegistry(scope: ProfileReadScope, signer: ccc.Signer, action:
       });
       await check();
       const transactionHash = await sendTransactionWithFeeRetry(guardPrivilegedActorSigner(createContributorSigner(observed,check,() => {}),scope.lockHash),tx,{preserveOutputCapacityIndices:new Set([0]),allowFeeRetry:false});
-      remember(transactionHash);
+      saved = remember(transactionHash);
     }
     if (!saved) throw new Error("The registry transaction receipt is unavailable. Inspect the attempted update before signing again.");
-    await isCurrent();
-    const confirmed = await signer.client.waitTransaction(saved.transactionHash,6,300_000,2000);
-    if (!confirmed) throw new Error(`Registry update awaiting confirmation: ${saved.transactionHash}. Retry confirmation before signing again.`);
-    const fresh = await freshAdmin(scope,signer,isCurrent), result = await withProfileDeadline(signal => readAdminRegistry(fresh,signal));
-    // Read the exact committed output too: a later legitimate registry update
-    // may already have superseded it, but must not turn an unproven write into success.
-    const transaction = await scope.client.getTransaction(saved.transactionHash);
-    const output = transaction?.transaction.outputs[0], data = transaction?.transaction.outputsData[0];
-    if (!transaction || transaction.status !== "committed" || transaction.blockNumber == null || transaction.transaction.hash() !== saved.transactionHash || !output?.type?.eq(script) || !output.lock.eq(script) || !data || ccc.hashCkb(data) !== saved.resultHash || !result.available || !result.data) throw new Error("The registry update is not yet independently confirmed and indexed. Retry confirmation.");
-    const committedData = decodeAdminRegistry(data);
-    if (committedData.protocolTypeHash !== scope.protocolHash || !verifiesAction(committedData) || !verifiesAction(result.data)) throw new Error("The committed or current registry does not contain the requested change. Review current evidence before submitting again.");
-    await isCurrent(); if (typeof localStorage !== "undefined") localStorage.removeItem(key); pendingInMemory.delete(key);
+    await confirmRegistryWrite(scope,signer,saved,script,checkCurrent,verifiesAction,true);
+    clearPending(key,saved);
     return {transactionHash:saved.transactionHash};
   } catch (error) {
     const attempted = pendingInMemory.get(key);

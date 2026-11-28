@@ -4,7 +4,7 @@ import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
 import {ccc} from "@ckb-ccc/connector-react";
 import {useAdminRewards} from "../use-admin-rewards";
 import {readAdminAchievements,readAdminRewardsAssets,type AdminAchievement} from "../admin-rewards-model";
-import {readAdminRewardPeriods} from "../admin-registry-service";
+import {readAdminRewardPeriods,saveAdminRewardPeriod} from "../admin-registry-service";
 import {rewardsFixture} from "@/test/fixtures/admin-rewards";
 let mockSigner:ccc.Signer|undefined,mockSignerInfo:object|undefined,mockWalletClient:object,mockProtocolCell:ccc.Cell;
 let mockClient:ccc.Client;const mockRefresh=jest.fn().mockResolvedValue(undefined);
@@ -26,4 +26,32 @@ describe("Rewards independent reads and actual wallet scope",()=>{
  it("rejects a late Admin read after the same Signer begins returning a different account",async()=>{const pending=deferred<AdminAchievement[]>();jest.mocked(readAdminAchievements).mockReturnValue(pending.promise);const {result}=setup();await waitFor(()=>expect(readAdminAchievements).toHaveBeenCalledTimes(1));const f=rewardsFixture();jest.mocked(mockSigner!.getRecommendedAddressObj).mockResolvedValue(ccc.Address.fromScript({...f.lock,args:"0x33"},f.client));await act(async()=>pending.resolve([f.achievement]));await waitFor(()=>expect(result.current.access).toBe("denied"));expect(result.current.achievements.data).toBeNull();expect(result.current.achievement).toBeNull();expect(result.current.periods.data).toBeNull();});
  it("hides records immediately when protocol/client identity is replaced, and discards the old late result",async()=>{const pending=deferred<AdminAchievement[]>();jest.mocked(readAdminAchievements).mockReturnValueOnce(pending.promise);const {result,rerender}=setup();await waitFor(()=>expect(readAdminAchievements).toHaveBeenCalledTimes(1));mockSigner=undefined;mockSignerInfo=undefined;mockWalletClient={};rerender();expect(result.current.achievements.data).toBeNull();await act(async()=>pending.resolve([rewardsFixture().achievement]));expect(result.current.access).toBe("disconnected");expect(result.current.achievements.data).toBeNull();});
  it("does not replace independent definition errors with an empty list",async()=>{jest.mocked(readAdminAchievements).mockRejectedValue(new Error("Published registry incomplete"));const {result}=setup();await waitFor(()=>expect(result.current.achievements.error).toBe("Published registry incomplete"));expect(result.current.achievements.data).toBeNull();await waitFor(()=>expect(result.current.assets.data).toHaveLength(1));});
+ it("keeps a delayed Registry read loading after assets are ready instead of calling storage unavailable",async()=>{
+  const pending=deferred<Awaited<ReturnType<typeof readAdminRewardPeriods>>>();jest.mocked(readAdminRewardPeriods).mockReturnValue(pending.promise);
+  const {result}=setup();await waitFor(()=>expect(result.current.access).toBe("allowed"));await waitFor(()=>expect(result.current.assets.data).toHaveLength(1));
+  expect(result.current.assets.loading).toBe(false);expect(result.current.registryLoading).toBe(true);expect(result.current.registryAvailable).toBeNull();expect(result.current.registryError).toBeNull();expect(result.current.registryUnavailableReason).toBeNull();
+  expect(saveAdminRewardPeriod).not.toHaveBeenCalled();
+  await act(async()=>pending.resolve({available:true,unavailableReason:null,periods:[]}));
+  await waitFor(()=>expect(result.current.registryAvailable).toBe(true));expect(result.current.registryLoading).toBe(false);expect(result.current.registryError).toBeNull();
+ });
+ it("exposes the actual Registry read failure separately from a successful undeployed capability result",async()=>{
+  jest.mocked(readAdminRewardPeriods).mockRejectedValue(new Error("The reviewed registry state or executable is no longer live. Reload current policy."));
+  const {result}=setup();await waitFor(()=>expect(result.current.registryError).toBe("The reviewed registry state or executable is no longer live. Reload current policy."));
+  expect(result.current.access).toBe("allowed");expect(result.current.registryLoading).toBe(false);expect(result.current.registryAvailable).toBeNull();expect(result.current.registryUnavailableReason).toBeNull();
+  expect(result.current.periods.error).toBe(result.current.registryError);expect(result.current.periods.data).toBeNull();expect(saveAdminRewardPeriod).not.toHaveBeenCalled();
+ });
+ it("configuration retry refetches Registry and assets without changing form scope, refreshing access or submitting",async()=>{
+  const pending=deferred<Awaited<ReturnType<typeof readAdminRewardPeriods>>>();
+  jest.mocked(readAdminRewardPeriods).mockRejectedValueOnce(new Error("Public RPC timed out")).mockReturnValueOnce(pending.promise);
+  const {result}=setup();await waitFor(()=>expect(result.current.registryError).toBe("Public RPC timed out"));await waitFor(()=>expect(result.current.assets.data).toHaveLength(1));
+  const scopeKey=result.current.scopeKey,lock=result.current.currentLockHash,assets=result.current.assets.data;
+  await act(async()=>result.current.onRetryConfiguration());await waitFor(()=>expect(result.current.registryLoading).toBe(true));
+  expect(result.current.scopeKey).toBe(scopeKey);expect(result.current.currentLockHash).toBe(lock);expect(mockRefresh).not.toHaveBeenCalled();expect(readAdminAchievements).toHaveBeenCalledTimes(1);expect(readAdminRewardPeriods).toHaveBeenCalledTimes(2);expect(readAdminRewardsAssets).toHaveBeenCalledTimes(2);
+  await act(async()=>pending.resolve({available:true,unavailableReason:null,periods:[]}));await waitFor(()=>expect(result.current.registryAvailable).toBe(true));
+  expect(result.current.registryLoading).toBe(false);expect(result.current.registryError).toBeNull();expect(result.current.scopeKey).toBe(scopeKey);expect(result.current.assets.data).toEqual(assets);expect(result.current.currentLockHash).toBe(lock);expect(saveAdminRewardPeriod).not.toHaveBeenCalled();expect(mockRefresh).not.toHaveBeenCalled();
+ });
+ it("only a successful available:false read exposes an unavailable capability reason",async()=>{
+  const {result}=setup();await waitFor(()=>expect(result.current.registryAvailable).toBe(false));
+  expect(result.current.registryUnavailableReason).toBe("Registry deployment pending");expect(result.current.registryLoading).toBe(false);expect(result.current.registryError).toBeNull();expect(result.current.access).toBe("allowed");
+ });
 });
