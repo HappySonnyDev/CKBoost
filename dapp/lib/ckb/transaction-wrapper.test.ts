@@ -25,6 +25,19 @@ jest.mock("@/lib/pending-transactions", () => ({
 
 import { sendTransactionWithFeeRetry } from "./transaction-wrapper";
 
+it("blocks a preserved output whose final 76-byte lock needs more capacity before requesting a wallet signature",async()=>{
+  const real=jest.requireActual("@ckb-ccc/core"),{ccc}=jest.requireMock("@ckb-ccc/connector-react");
+  // Match connector CCC 1.12: an explicitly provided capacity is retained.
+  ccc.CellOutput.from.mockImplementation((value:{capacity?:bigint;lock:unknown;type?:unknown},data:string)=>({...value,capacity:value.capacity??real.CellOutput.from(value,data).capacity}));
+  const script={codeHash:`0x${"11".repeat(32)}`,hashType:"type",args:`0x${"00".repeat(76)}`};
+  const tx={outputs:[{capacity:57600000000n,lock:script,type:script}],outputsData:[`0x${"00".repeat(404)}`],inputs:[],witnesses:[],addCellDepsOfKnownScripts:jest.fn().mockResolvedValue(undefined),completeInputsByCapacity:jest.fn().mockResolvedValue(undefined),completeFeeBy:jest.fn().mockResolvedValue(undefined),copy:jest.fn(),clone:jest.fn(),toBytes:jest.fn(()=>new Uint8Array(1000))};
+  tx.clone.mockReturnValue(tx);
+  const signer={client:{getFeeRate:jest.fn().mockResolvedValue(1000)},getRecommendedAddressObj:jest.fn().mockResolvedValue({script:{codeHash:"0x1",hashType:"type",args:"0x2"}}),prepareTransaction:jest.fn(async value=>value),sendTransaction:jest.fn()};
+  await expect(sendTransactionWithFeeRetry(signer as never,tx as never,{allowFeeRetry:false,preserveOutputCapacityIndices:new Set([0])})).rejects.toThrow(/57600000000 shannons provided, 63000000000 required/);
+  expect(signer.sendTransaction).not.toHaveBeenCalled();expect(tx.outputs[0].capacity).toBe(57600000000n);
+  ccc.CellOutput.from.mockReset();
+});
+
 it("keeps reviewed Admin submissions to one wallet prompt even for a fee rejection",async()=>{
   const tx={outputs:[],outputsData:[],inputs:[],witnesses:[],addCellDepsOfKnownScripts:jest.fn().mockResolvedValue(undefined),completeInputsByCapacity:jest.fn().mockResolvedValue(undefined),completeFeeBy:jest.fn().mockResolvedValue(undefined),copy:jest.fn(),clone:jest.fn(),toBytes:jest.fn(()=>new Uint8Array(1000))};tx.clone.mockReturnValue(tx);
   const signer={client:{getFeeRate:jest.fn().mockResolvedValue(1000)},getRecommendedAddressObj:jest.fn().mockResolvedValue({script:{codeHash:"0x1",hashType:"type",args:"0x2"}}),prepareTransaction:jest.fn(async value=>value),sendTransaction:jest.fn().mockRejectedValue(new Error("PoolRejectedTransactionByMinFeeRate: requiring a transaction fee of at least 2715 shannons"))};

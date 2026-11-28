@@ -6,7 +6,15 @@ import {ccc} from "@ckb-ccc/connector-react";
  * No wallet/client object is mutated or replaced with a different signer. */
 export function observeAdminTransactionAttempt(signer: ccc.Signer, remember: (transaction: ccc.Transaction) => void | Promise<void>): ccc.Signer {
   const client = new Proxy(signer.client, {get(target, key) {
-    if (key === "sendTransaction") return async (...args: Parameters<ccc.Client["sendTransaction"]>) => {await remember(ccc.Transaction.from(args[0])); return target.sendTransaction(...args);};
+    if (key === "sendTransaction") return async (...args: Parameters<ccc.Client["sendTransaction"]>) => {
+      const source = args[0] as ccc.TransactionLike & {toBytes?:()=>Uint8Array};
+      const raw = typeof source.toBytes === "function" ? ccc.hexFrom(source.toBytes()) : null;
+      const exact = raw ? ccc.Transaction.fromBytes(raw) : ccc.Transaction.from(source);
+      if (raw && ccc.hexFrom(exact.toBytes()) !== raw) throw new Error("The transaction decoder changed the exact public bytes. Nothing was recorded or submitted.");
+      await remember(exact);
+      args[0] = exact;
+      return target.sendTransaction(...args);
+    };
     const value = Reflect.get(target, key, target); return typeof value === "function" ? value.bind(target) : value;
   }});
   return new Proxy(signer, {get(target, key, receiver) {

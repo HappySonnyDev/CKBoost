@@ -45,6 +45,18 @@ Account 1 已完成 Account 2 的手工验证，实际交易 `0x305e7396f1801871
 
 实际父交易 body hash、当前 Registry/code、Account 1 原生输入和净支出已交叉核对；manual attestation、Tip 设置保持原样，Protocol/Campaign/UserCell 仍 live 且未被消费，Account 2 原 Points Cell 及余额 1 保留。本次证明配置已持久化和页面回读完成；尚未计算获奖名单、评估周期资格、支付、领取或铸造 100 Points。
 
+### Tip 创建容量与旧尝试恢复（2026-11-29）
+
+两次审批测试的首个创建尝试为 `0x016c855dec9d49f1e250bf83ae9bfe0a169146bfa5f46fbaf590dbcef825f441`，节点返回 `InsufficientCellCapacity`。用户提供发送前 Console 的完整公开交易后，已独立重算 raw hash 精确匹配：输出 0 实际容量 576 tCKB，完整 lock/type/data 的最低容量为 630 tCKB，差额 54 tCKB。原因是 SSRI 初始输出按 22 字节 OmniLock args 计算容量，服务随后换成 76 字节 ProtocolLock args，但旧 CCC 保留非零的显式容量。只改 witness 或重复发送无法补足该固定正文的容量。
+
+SDK 现先确定最终 Tip lock/type/data，再动态重算唯一状态输出的最低容量并保留原容量下限；首审和后续背书同样处理，不改资金池和收款金额。另补回 SSRI 反序列化丢失的旧输入 metadata，防止后审被误认为创建而改变原 owner。钱包弹窗前和最终客户端提交处均检查输出容量。未修改或重新部署合约。
+
+旧 v1 回执只有 action/hash，节点查不到正文时不能直接解除。新增恢复流程要求精确正文、raw hash、创建 action、完整 QA/proposer/owner 绑定和实际容量缺口均验证通过；只读节点检查不允许 pending、proposed 或 committed。先持久化诊断并回读验证，再显式归档这一个回执与对应全局待确认通知，不自动签名、重发或创建另一提案。新 v2 回执在发送前强制保存完整公开交易字节并验证，保存失败会停止提交。CCC 1.19 会自动调整低容量的解析行为也有反例保护，不能在核验证据时悄悄改变 raw hash。
+
+公开交易证明显示本次只有 `c3d2…63bc:1` 一个资金输入；已核验该 Cell 仍 live、仍归 Account 1，容量 6,869.57259505 tCKB。单次同库恢复证明后来读到该 hash 为 rejected；更早的 unknown 取样也保留，两者没有被混为已确认。当前只证明原尝试无效且原资金输入未消耗，修复后的新 Tip 创建、首审、资金存入与最终支付仍待用户逐笔签名验收。
+
+SDK 定向测试 15 项、既有 dapp Tip 相关测试 9 项及 SDK TypeScript 编译通过；首轮集成完整 Jest **134 suites / 1,189 tests** 通过。最终补充归档重试与账户切换边界后，hook/UI **2 suites / 48 tests** 通过，最终 QA production build 通过；已核对本地实际提供 v2 回执、容量归档和签名前检查的新 JS。类型检查仍仅有原先 6 项诊断。公开 Console 日志的 witness 是签名前占位内容；该日志证明 raw body 与容量缺口，不把它当成钱包签名有效性的证明。
+
 ## 11 月 25 日交付时记录（历史）
 
 本记录覆盖新版 Admin 的 Overview、Campaigns、Users、Tipping、Rewards & Recognition 五个模块，以及配套的独立 QA 金融合约候选。五模块页面与数据、操作接口已实现；这不代表所有新能力已经在链上启用，也不代表五模块的每个按钮都经过真实钱包端到端验收。

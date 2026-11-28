@@ -21,7 +21,7 @@ import {readAdminTipCapability,makeAdminTipExecutionPolicy,type AdminTipCapabili
 import type {AdminTippingExecutionPolicy} from "@/lib/services/tipping-service";
 import {adminTipAssets,adminTipId,assertTippingAdmin,assertTippingProtocolScope,assertProtocolTipSupport,isProtocolTipApprover,buildProtocolTipRows,buildAdminTipRows,canonicalAdminTipAsset,readAdminTipDepositDelta,legacyTipSettings,makeAdminTipData,readAdminTipHistory,readAdminTipPool,readAdminTips,readProtocolTip,readProtocolTipPool,readProtocolTipHistory,tipShortfalls,validateTipSettingsDraft,type AdminTipDraft,type AdminTipRow,type AdminTipSettingsDraft} from "./admin-tipping-model";
 import {parseRewardAmount,type AdminRewardsAsset} from "./admin-rewards-model";
-import {confirmAdminTipReceipt,parseAdminTipReceipt,type AdminTipPendingReceipt} from "./admin-tipping-confirmation";
+import {confirmAdminTipReceipt,parseAdminTipReceipt,makeAdminTipReceipt,inspectInvalidAdminTipReceipt,type AdminTipPendingReceipt,type AdminTipInvalidCapacityProof} from "./admin-tipping-confirmation";
 
 const ids=new WeakMap<object,number>();let next=0;
 function identity(value:object|null|undefined){if(!value)return 0;const old=ids.get(value);if(old)return old;const id=++next;ids.set(value,id);return id;}
@@ -29,16 +29,26 @@ const message=(error:unknown)=>error instanceof Error?error.message:"The tipping
 type Receipt=AdminTipPendingReceipt;
 type SupportAuthorization={registry:AdminRegistrySnapshot;capability:AdminTipCapability};
 const pendingInMemory=new Map<string,Receipt>();
+const sameReceipt=(a:Receipt,b:Receipt)=>JSON.stringify(a)===JSON.stringify(b);
 function readPendingTip(key:string):Receipt|null {
-  const memory=pendingInMemory.get(key),raw=typeof localStorage!=="undefined"?localStorage.getItem(key):null;
+  const memory=pendingInMemory.get(key);let raw:string|null=null;
+  try{raw=typeof localStorage!=="undefined"?localStorage.getItem(key):null;}catch(error){if(memory)return memory;throw error;}
   const saved=raw?parseAdminTipReceipt(raw):null;
-  if(memory&&saved&&(memory.transactionHash!==saved.transactionHash||memory.action!==saved.action))throw new Error("Conflicting tipping receipts exist. Inspect both before signing again.");
+  if(memory&&saved&&!sameReceipt(memory,saved))throw new Error("Conflicting tipping receipts exist. Inspect both before signing again.");
   return memory??saved;
 }
+function clearPendingTip(key:string,saved:Receipt){
+  const latest=readPendingTip(key);if(!latest||!sameReceipt(latest,saved))throw new Error("The saved tipping receipt changed. Nothing was cleared.");
+  if(typeof localStorage==="undefined")throw new Error("Receipt storage is unavailable. The pending receipt is retained.");
+  const raw=localStorage.getItem(key);if(raw&&!sameReceipt(parseAdminTipReceipt(raw),saved))throw new Error("The stored tipping receipt changed. Nothing was cleared.");
+  localStorage.removeItem(key);if(localStorage.getItem(key)!==null)throw new Error("The pending receipt could not be removed. Inspect the saved diagnostic before another action.");
+  pendingInMemory.delete(key);
+}
 export function useAdminTipping({tipId,historyRequested=false}:{tipId?:string;historyRequested?:boolean}={}) {
-  const signer=ccc.useSigner(),{client:walletClient,signerInfo,open}=ccc.useCcc(),protocol=useProtocol(),queryClient=useQueryClient(),{confirmationTarget,register}=usePendingTransactions();
-  const [revision,setRevision]=useState(0),[operation,setOperation]=useState<{key:string;phase:"signing"|"confirming"|"confirmed"|"error";transactionHash?:string;error?:string}|null>(null);
+  const signer=ccc.useSigner(),{client:walletClient,signerInfo,open}=ccc.useCcc(),protocol=useProtocol(),queryClient=useQueryClient(),{confirmationTarget,register,remove}=usePendingTransactions();
+  const [revision,setRevision]=useState(0),[operation,setOperation]=useState<{key:string;phase:"signing"|"confirming"|"confirmed"|"invalid"|"error";transactionHash?:string;error?:string}|null>(null);
   const [pending,setPending]=useState<{key:string;receipt:Receipt|null;error:string|null}>({key:"",receipt:null,error:null});
+  const [capacityArchive,setCapacityArchive]=useState<{key:string;proof:AdminTipInvalidCapacityProof}|null>(null);
   const busy=useRef(false);
   const configuration=useMemo(()=>{try{const network=currentDeployment.getCurrentNetwork();return {network,client:getDiscoveryReadClient(network),error:null};}catch(error){return {network:null,client:null,error:message(error)};}},[walletClient]);
   const protocolCell=protocol.protocolCell,protocolKey=protocolCell?`${protocolCell.cellOutput.type?.hash()}:${protocolCell.outPoint.txHash}:${protocolCell.outPoint.index}:${ccc.hashCkb(protocolCell.outputData)}`:"pending";
@@ -86,17 +96,17 @@ export function useAdminTipping({tipId,historyRequested=false}:{tipId?:string;hi
         const check=async()=>{const latest=await freshScope(captured);assertAdminQaScope(latest);if(purpose==="manage")assertTippingAdmin(latest);if(latest.protocolCell.outPoint.txHash!==fresh.protocolCell.outPoint.txHash||latest.protocolCell.outPoint.index!==fresh.protocolCell.outPoint.index||ccc.hashCkb(latest.protocolCell.outputData)!==ccc.hashCkb(fresh.protocolCell.outputData))throw new Error("The protocol changed during transaction preparation. Review again.");
           if(authorization){const current=await supportAuthorization(latest),before=authorization.registry.cell,after=current.registry.cell;if(Boolean(before)!==Boolean(after)||before&&after&&(!before.outPoint.eq(after.outPoint)||ccc.hashCkb(before.outputData)!==ccc.hashCkb(after.outputData)))throw new Error("The tip registry changed during transaction preparation. Review again.");}await guard(captured);
         };
-        const remember=(transactionHash:ccc.Hex)=>{if(receipt&&receipt.transactionHash!==transactionHash)throw new Error(`A tipping transaction was already submitted or attempted: ${receipt.transactionHash}. Confirm it before signing another body.`);const first=!receipt;receipt={schema:"ckboost-admin-tip-pending/v1",action,transactionHash};pendingInMemory.set(receiptKey,receipt);try{if(typeof localStorage!=="undefined")localStorage.setItem(receiptKey,JSON.stringify(receipt));}catch{/* Retain the active session's attempt if browser storage is unavailable. */}if(current.current.session===captured.session){setPending({key:receiptKey,receipt,error:null});setOperation({key:captured.session,phase:"confirming",transactionHash});}if(first)register(transactionHash,{description:"Admin tipping update"});};
-        const observed=observeAdminTransactionAttempt(captured.signer!,async actual=>{await check();await assertActorNetCapacitySpend(captured.signer!,actual,fresh.lockHash);remember(actual.hash());});
+        const remember=(actual:ccc.Transaction)=>{const next=makeAdminTipReceipt(action,actual),existing=readPendingTip(receiptKey);if(existing&&!sameReceipt(existing,next)||receipt&&!sameReceipt(receipt,next))throw new Error("Another tipping body or receipt is already saved. Confirm it before another submission.");const first=!receipt;receipt=next;pendingInMemory.set(receiptKey,next);if(current.current.session===captured.session){setPending({key:receiptKey,receipt:next,error:null});setOperation({key:captured.session,phase:"confirming",transactionHash:next.transactionHash});}if(typeof localStorage==="undefined")throw new Error("Public receipt storage is unavailable. Submission was blocked; the actual body remains in memory.");localStorage.setItem(receiptKey,JSON.stringify(next));const stored=localStorage.getItem(receiptKey);if(!stored||!sameReceipt(parseAdminTipReceipt(stored),next))throw new Error("The actual public receipt could not be durably verified. Submission was blocked; inspect the retained body.");if(first)register(next.transactionHash,{description:"Admin tipping update"});};
+        const observed=observeAdminTransactionAttempt(captured.signer!,async actual=>{const exact=ccc.Transaction.fromBytes(actual.toBytes());await check();await assertActorNetCapacitySpend(captured.signer!,exact,fresh.lockHash);await guard(captured);remember(exact);exact.outputs.forEach((output,index)=>{const required=ccc.CellOutput.from({lock:output.lock,type:output.type},exact.outputsData[index]).capacity;if(output.capacity<required)throw new Error(`Actual signed output ${index} has ${output.capacity} shannons but requires ${required}. Submission stopped without changing the body; inspect and archive the saved diagnostic.`);});await guard(captured);});
         const safe=guardPrivilegedActorSigner(createContributorSigner(observed,check,()=>{}),fresh.lockHash);
-        const transactionHash=await send(fresh,safe,authorization);if(!/^0x[0-9a-f]{64}$/.test(transactionHash))throw new Error("The node returned an invalid transaction hash.");remember(transactionHash as ccc.Hex);
+        const transactionHash=await send(fresh,safe,authorization),recorded=readPendingTip(receiptKey);if(!/^0x[0-9a-f]{64}$/.test(transactionHash)||!recorded||recorded.schema!=="ckboost-admin-tip-pending/v2"||recorded.transactionHash!==transactionHash)throw new Error("The node acknowledgement has no matching durably captured public transaction. Inspect the existing receipt before another wallet action.");receipt=recorded;
       }
       if(!receipt)throw new Error("The tipping submission receipt is unavailable. Inspect it before signing again.");
       await guard(captured);setOperation({key:captured.session,phase:"confirming",transactionHash:receipt.transactionHash});
       const confirmation=await captured.signer!.client.waitTransaction(receipt.transactionHash,confirmationTarget,300_000,2000);if(!confirmation)throw new Error("The tipping transaction is awaiting confirmation. Retry confirmation before signing again.");
       await guard(captured);const response=await captured.scope!.client.getTransaction(receipt.transactionHash);if(!response||response.status!=="committed"||response.blockNumber==null||response.transaction.hash()!==receipt.transactionHash)throw new Error("The confirmed tipping transaction has not been independently verified yet.");
       const fresh=await freshScope(captured),result=await verify(fresh,response.transaction);await guard(captured);
-      if(typeof localStorage!=="undefined")localStorage.removeItem(receiptKey);pendingInMemory.delete(receiptKey);setPending({key:receiptKey,receipt:null,error:null});setOperation({key:captured.session,phase:"confirmed",transactionHash:receipt.transactionHash});
+      clearPendingTip(receiptKey,receipt);setPending({key:receiptKey,receipt:null,error:null});setOperation({key:captured.session,phase:"confirmed",transactionHash:receipt.transactionHash});
       await queryClient.invalidateQueries({queryKey:["revamp-admin-tipping"]});await queryClient.invalidateQueries({queryKey:["revamp-admin-overview"]});return result;
     }catch(error){const attempted=pendingInMemory.get(receiptKey);const detail=attempted?`${message(error)} Pending transaction: ${attempted.transactionHash}. Retry confirmation before signing again.`:message(error);if(current.current.session===captured.session)setOperation(previous=>({key:captured.session,phase:"error",transactionHash:attempted?.transactionHash??previous?.transactionHash,error:detail}));throw new Error(detail);}finally{busy.current=false;}
   }
@@ -108,10 +118,28 @@ export function useAdminTipping({tipId,historyRequested=false}:{tipId?:string;hi
       setPending({key,receipt,error:null});setOperation({key:captured.session,phase:"confirming",transactionHash:receipt.transactionHash});
       const fresh=await freshScope(captured),saved=receipt;
       const confirmed=await withProfileDeadline(signal=>confirmAdminTipReceipt(fresh,saved,{confirmationTarget,signal,assertCurrent:()=>guard(captured)}),undefined,25_000);
-      await guard(captured);const latest=readPendingTip(key);if(!latest||latest.transactionHash!==saved.transactionHash||latest.action!==saved.action)throw new Error("The saved tipping receipt changed during confirmation. Inspect it before retrying.");
-      if(typeof localStorage!=="undefined")localStorage.removeItem(key);pendingInMemory.delete(key);setPending({key,receipt:null,error:null});setOperation({key:captured.session,phase:"confirmed",transactionHash:saved.transactionHash});
+      await guard(captured);clearPendingTip(key,saved);setPending({key,receipt:null,error:null});setOperation({key:captured.session,phase:"confirmed",transactionHash:saved.transactionHash});
       await queryClient.invalidateQueries({queryKey:["revamp-admin-tipping"]});await queryClient.invalidateQueries({queryKey:["revamp-admin-overview"]});return confirmed.result;
     }catch(error){if(current.current.session===captured.session)setOperation({key:captured.session,phase:"error",transactionHash:receipt?.transactionHash,error:message(error)});throw error;}finally{busy.current=false;}
+  }
+  async function archiveInvalidPending(publicTransactionText?:string):Promise<AdminTipInvalidCapacityProof>{
+    const captured=current.current;await guard(captured);if(busy.current)throw new Error("A tipping operation is already in progress.");busy.current=true;
+    const key=`ckboost:admin-tip-pending:${captured.scope!.network}:${captured.scope!.protocolHash}:${captured.scope!.lockHash}`;let saved:Receipt|null=null;
+    try{
+      saved=readPendingTip(key);if(!saved)throw new Error("No saved tipping transaction is available for inspection.");
+      setOperation({key:captured.session,phase:"confirming",transactionHash:saved.transactionHash});
+      const fresh=await freshScope(captured),proof=await withProfileDeadline(signal=>inspectInvalidAdminTipReceipt(fresh,saved!,publicTransactionText,{signal,assertCurrent:()=>guard(captured)}),undefined,25_000);
+      await guard(captured);const latest=readPendingTip(key);if(!latest||!sameReceipt(latest,saved))throw new Error("The saved tipping receipt changed during inspection. Nothing was cleared.");
+      if(proof.schema!=="ckboost-admin-tip-invalid-capacity/v1"||proof.network!==fresh.network||proof.protocolTypeHash!==fresh.protocolHash||proof.walletLockHash!==fresh.lockHash||proof.action!==saved.action||proof.transactionHash!==saved.transactionHash||proof.diagnosticReceipt.action!==saved.action||proof.diagnosticReceipt.transactionHash!==saved.transactionHash)throw new Error("The diagnostic belongs to another wallet, protocol or saved body. Nothing was cleared.");
+      if(typeof localStorage==="undefined")throw new Error("Diagnostic storage is unavailable. The pending receipt is retained.");
+      const archiveKey=`ckboost:admin-tip-invalid-capacity:${fresh.network}:${fresh.protocolHash}:${fresh.lockHash}:${saved.transactionHash}`,encoded=JSON.stringify(proof),old=localStorage.getItem(archiveKey);
+      if(old!==null&&old!==encoded){const previous:unknown=JSON.parse(old);if(!previous||typeof previous!=="object"||Array.isArray(previous)||!["unknown","rejected"].includes((previous as {nodeStatus?:string}).nodeStatus??"")||!["unknown","rejected"].includes(proof.nodeStatus)||JSON.stringify({...previous,nodeStatus:proof.nodeStatus})!==encoded)throw new Error("A different diagnostic already exists for this hash. The pending receipt is retained.");}
+      // A retry may observe unknown→rejected after the archive succeeded but
+      // receipt removal failed. Preserve the first archive byte-for-byte;
+      // every field except those two permitted node statuses must be identical.
+      const durable=old??encoded;if(old===null)localStorage.setItem(archiveKey,encoded);if(localStorage.getItem(archiveKey)!==durable)throw new Error("The public diagnostic could not be durably verified. The pending receipt is retained.");
+      await guard(captured);clearPendingTip(key,saved);setPending({key,receipt:null,error:null});setCapacityArchive({key,proof});setOperation({key:captured.session,phase:"invalid",transactionHash:saved.transactionHash});remove(saved.transactionHash);return proof;
+    }catch(error){if(current.current.session===captured.session)setOperation({key:captured.session,phase:"error",transactionHash:saved?.transactionHash,error:message(error)});throw error;}finally{busy.current=false;}
   }
   async function service(fresh:ProfileReadScope,safe:ccc.Signer,row?:AdminTipRow,policy?:AdminTippingExecutionPolicy|null){
     const names=[ ["ckboostTippingType","ckb_boost_tipping_type_code_hash"], ["ckboostProtocolLock","ckb_boost_protocol_lock_code_hash"], ["ckboostFundingLock","ckb_boost_funding_lock_code_hash"] ] as const;
@@ -146,7 +174,7 @@ export function useAdminTipping({tipId,historyRequested=false}:{tipId?:string;hi
     const cells=(await readProfilePagesLocal(fresh,asset)).filter(cell=>cell.cellOutput.lock.eq(fresh.walletLock));await guard(captured);return cells.reduce((sum,cell)=>asset.kind==="ckb"?sum+(!cell.cellOutput.type&&cell.outputData==="0x"?cell.cellOutput.capacity:0n):sum+(cell.cellOutput.type?.eq(asset.typeScript!)&&ccc.bytesFrom(cell.outputData).length===16?ccc.numLeFromBytes(cell.outputData):0n),0n);}
   const supportUnavailableReason=selected&&!isAdmin&&!selected.supporters.length?"The first approval must be given by a current platform Admin.":!allowed?"This wallet is not a current platform Admin or verified tip approver.":null;
   const canApprove=Boolean(allowed&&selected&&!supportUnavailableReason&&selected.status!=="granted"&&selected.status!=="expired"&&!selected.supporters.includes(scope!.lockHash));
-  return {access,error,isAdmin,canManage,canApprove,detailMode,supportUnavailableReason,pendingReceipt:pending.key===receiptKey?pending.receipt:null,pendingReceiptError:pending.key===receiptKey?pending.error:null,checkPendingConfirmation,rows:allowed?rows:null,recordsLoading:allowed&&(recordsQuery.isPending||recordsQuery.isFetching),recordsError:allowed?recordsError:null,selected,
+  return {access,error,isAdmin,canManage,canApprove,detailMode,supportUnavailableReason,pendingReceipt:pending.key===receiptKey?pending.receipt:null,pendingReceiptError:pending.key===receiptKey?pending.error:null,archivedCapacityDiagnostic:capacityArchive?.key===receiptKey?capacityArchive.proof:null,checkPendingConfirmation,archiveInvalidPending,rows:allowed?rows:null,recordsLoading:allowed&&(recordsQuery.isPending||recordsQuery.isFetching),recordsError:allowed?recordsError:null,selected,
     pool:allowed&&!poolQuery.error?poolQuery.data??null:null,poolLoading:allowed&&(poolQuery.isPending||poolQuery.isFetching),poolError:allowed&&poolQuery.error?message(poolQuery.error):null,
     assets:scope?adminTipAssets(scope):[],settings,settingsAvailable:Boolean(canManage&&registryQuery.data?.available&&tipCapability?.available),settingsUnavailableReason:registryQuery.error?message(registryQuery.error):capabilityQuery.error?message(capabilityQuery.error):tipCapability?.unavailableReason??registryQuery.data?.unavailableReason??"Loading settings…",
     history:historyRequested&&!historyQuery.error?historyQuery.data??null:null,historyLoading:historyRequested&&(historyQuery.isPending||historyQuery.isFetching),historyError:historyQuery.error?message(historyQuery.error):null,

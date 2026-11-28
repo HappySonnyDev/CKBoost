@@ -243,6 +243,19 @@ export async function sendTransactionWithFeeRetry(
       // rebuilding from the same transaction object if RPC submission fails.
       const txForWallet = tx.clone();
       normalizeTransactionForWallet(txForWallet);
+      // Validate the final scripts and data before opening a wallet prompt.
+      // Reconstruct without a supplied capacity: older CCC versions preserve
+      // an explicit, insufficient amount even after a script has changed.
+      for (let index = 0; index < txForWallet.outputs.length; index++) {
+        const output = txForWallet.outputs[index];
+        const required = ccc.CellOutput.from(
+          { lock: output.lock, type: output.type },
+          txForWallet.outputsData[index]
+        ).capacity;
+        if (output.capacity < required) {
+          throw new Error(`Output ${index} has insufficient storage capacity: ${output.capacity} shannons provided, ${required} required. Rebuild the transaction before signing.`);
+        }
+      }
       log.log("JSON.stringify(tx)", ccc.stringify(txForWallet));
       const txHash = await signer.sendTransaction(txForWallet);
       log.info("Transaction sent successfully! TxHash:", txHash);

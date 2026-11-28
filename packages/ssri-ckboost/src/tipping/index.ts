@@ -2,10 +2,12 @@ import { ccc } from "@ckb-ccc/core";
 import { ssri } from "@ckb-ccc/ssri";
 import {
   ConnectedTypeID,
+  ProtocolData,
   TippingData,
   type TippingDataLike,
 } from "../generated";
 import { createScopedLogger } from "../logging/index.js";
+import { retainOutputCapacityFloor } from "../campaign/actor-proof";
 
 const log = createScopedLogger("Tipping");
 
@@ -111,13 +113,18 @@ export class Tipping extends ssri.Trait {
       })) {
         log.info("Found tipping cell:", cell.outPoint);
         // Check if the cell is in the inputs of the transaction. If none, add it as an input.
-        if (
-          !resTx.res.inputs.some(
-            (input) =>
-              input.previousOutput.txHash === cell.outPoint.txHash &&
-              input.previousOutput.index === cell.outPoint.index
-          )
-        ) {
+        const existingInput = resTx.res.inputs.find(
+          (input) =>
+            input.previousOutput.txHash === cell.outPoint.txHash &&
+            input.previousOutput.index === cell.outPoint.index
+        );
+        if (existingInput) {
+          // Molecule serializes only the reference and since. Restore the
+          // resolved cell metadata so callers can distinguish an update from
+          // creation without replacing the original owner's lock.
+          existingInput.cellOutput = cell.cellOutput;
+          existingInput.outputData = cell.outputData;
+        } else {
           log.info("Adding tipping cell as input:", cell.outPoint);
           resTx.res.addInput(cell);
         }
@@ -139,10 +146,8 @@ export class Tipping extends ssri.Trait {
             ccc.hexFrom(TippingData.encode(tippingData))
           );
         }
-        if (declaredAtMs !== undefined) {
-          const preserved = resTx.res.outputs.find(output => output.type?.eq(cell.cellOutput.type!));
-          if (preserved && preserved.capacity < cell.cellOutput.capacity) preserved.capacity = cell.cellOutput.capacity;
-        }
+        const preserved = resTx.res.outputs.find(output => output.type?.eq(cell.cellOutput.type!));
+        if (preserved && preserved.capacity < cell.cellOutput.capacity) preserved.capacity = cell.cellOutput.capacity;
       }
 
       // Find the tipping cell output (should be the first output with the tipping type script)
@@ -220,6 +225,28 @@ export class Tipping extends ssri.Trait {
           resTx.res.outputs[tippingCellOutputIndex].type.args
         );
       }
+
+      const tippingOutput = resTx.res.outputs[tippingCellOutputIndex];
+      if (isNewTipping) {
+        // SSRI initially uses the wallet lock. Complete the longer protocol
+        // owner lock before computing capacity, rather than relying on callers
+        // to replace the lock after the output has already been priced.
+        const protocolData = ProtocolData.decode(this.connectedProtocolCell.outputData);
+        const owner = (await signer.getRecommendedAddressObj()).script;
+        tippingOutput.lock = ccc.Script.from({
+          codeHash: ccc.hexFrom(protocolData.protocol_config.script_code_hashes.ckb_boost_protocol_lock_code_hash),
+          hashType: "type",
+          args: ccc.hexFrom(ConnectedTypeID.encode({
+            type_id: owner.hash(),
+            connected_key: connectedProtocolCellTypeHash,
+          })),
+        });
+      }
+      // Final type args, owner lock, metadata and supporter/status changes all
+      // affect occupied capacity. Recompute without an explicit capacity (CCC
+      // otherwise preserves a nonzero, possibly undersized SSRI value), then
+      // retain the existing floor. Do not resize pool or payout outputs.
+      retainOutputCapacityFloor(resTx.res, tippingCellOutputIndex, tippingOutput.capacity);
 
       resTx.res.addCellDeps({
         outPoint: this.connectedProtocolCell.outPoint,
