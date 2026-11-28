@@ -19,6 +19,7 @@ import {readAdminRegistry,readProtocolAdminRegistry,saveAdminTipSettings,type Ad
 import {readAdminUsers} from "./admin-users-model";
 import {readAdminTipCapability,makeAdminTipExecutionPolicy,type AdminTipCapability} from "./admin-tipping-capability";
 import type {AdminTippingExecutionPolicy} from "@/lib/services/tipping-service";
+import {resolveProtocolTipRecipient,TipRecipientUserNotFoundError} from "./admin-tip-recipient";
 import {adminTipAssets,adminTipId,assertTippingAdmin,assertTippingProtocolScope,assertProtocolTipSupport,isProtocolTipApprover,buildProtocolTipRows,buildAdminTipRows,canonicalAdminTipAsset,readAdminTipDepositDelta,legacyTipSettings,makeAdminTipData,readAdminTipHistory,readAdminTipPool,readAdminTips,readProtocolTip,readProtocolTipPool,readProtocolTipHistory,tipShortfalls,validateTipSettingsDraft,type AdminTipDraft,type AdminTipRow,type AdminTipSettingsDraft} from "./admin-tipping-model";
 import {parseRewardAmount,type AdminRewardsAsset} from "./admin-rewards-model";
 import {confirmAdminTipReceipt,parseAdminTipReceipt,makeAdminTipReceipt,inspectInvalidAdminTipReceipt,type AdminTipPendingReceipt,type AdminTipInvalidCapacityProof} from "./admin-tipping-confirmation";
@@ -147,7 +148,7 @@ export function useAdminTipping({tipId,historyRequested=false}:{tipId?:string;hi
     const outPoint=deploymentManager.getContractOutPoint(fresh.network,"ckboostTippingType");if(!outPoint)throw new Error("Tipping executable is unavailable.");
     const {Tipping}=await import("ssri-ckboost"),{TippingService}=await import("@/lib/services/tipping-service");
     const script=row?.cell.cellOutput.type??ccc.Script.from({codeHash:ccc.hexFrom(fresh.protocol.protocol_config.script_code_hashes.ckb_boost_tipping_type_code_hash),hashType:"type",args:ccc.hexFrom(ConnectedTypeID.encode({type_id:`0x${"00".repeat(32)}`,connected_key:fresh.protocolHash}))});
-    return new TippingService(safe,new Tipping(outPoint,script,fresh.protocolCell,{executor:new ssri.ExecutorJsonRpc(process.env.NEXT_PUBLIC_SSRI_EXECUTOR_URL||"http://127.0.0.1:9091/")}),fresh.protocolCell,policy??undefined,{allowFeeRetry:false});
+    return new TippingService(safe,new Tipping(outPoint,script,fresh.protocolCell,{executor:new ssri.ExecutorJsonRpc(process.env.NEXT_PUBLIC_SSRI_EXECUTOR_URL||"http://127.0.0.1:9091/")}),fresh.protocolCell,policy??undefined,{allowFeeRetry:false,...(policy?{resolveRecipientLock:async(hash:ccc.Hex)=>{try{return await resolveProtocolTipRecipient(fresh,hash);}catch(error){if(error instanceof TipRecipientUserNotFoundError)return null;throw error;}}}:{})});
   }
   async function approve(row:AdminTipRow){if(!isAdmin&&(!detailMode||row.id!==tipId?.toLowerCase()))throw new Error("Tip approver access is limited to this exact proposal detail.");return write(`support:${row.id}:${row.cell.outPoint.txHash}:${row.cell.outPoint.index}`,async(fresh,safe,authorization)=>{
     if(!isOverviewAdmin(fresh)&&(!detailMode||row.id!==tipId?.toLowerCase()))throw new Error("Tip approver access is limited to this exact proposal detail.");

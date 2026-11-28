@@ -10,6 +10,7 @@ import {readAdminTipCapability,makeAdminTipExecutionPolicy,type AdminTipCapabili
 import {encodeAdminRegistry,type AdminRegistryData} from "../admin-registry-model";
 import {makeProfileReadScope} from "../profile-model";
 import {readAdminUsers} from "../admin-users-model";
+import {resolveProtocolTipRecipient,TipRecipientUserNotFoundError} from "../admin-tip-recipient";
 import {adminUsersFixture,userHash as h} from "./admin-users-fixtures";
 import {inspectInvalidAdminTipReceipt,makeAdminTipReceipt,type AdminTipInvalidCapacityProof} from "../admin-tipping-confirmation";
 import qaScope from "@/config/qa/ckboost-testnet.json";
@@ -31,7 +32,8 @@ jest.mock("../admin-users-model",()=>({...jest.requireActual("../admin-users-mod
 jest.mock("../admin-registry-service",()=>({readAdminRegistry:jest.fn(),readProtocolAdminRegistry:jest.fn(),saveAdminTipSettings:jest.fn()}));
 jest.mock("../admin-tipping-model",()=>({...jest.requireActual("../admin-tipping-model"),readAdminTips:jest.fn(),readAdminTipPool:jest.fn(),readAdminTipHistory:jest.fn(),readProtocolTip:jest.fn(),readProtocolTipPool:jest.fn(),readProtocolTipHistory:jest.fn()}));
 jest.mock("@/lib/services/udt-registry",()=>({udtRegistry:{getTokenByScriptHash:()=>undefined}}));
-jest.mock("@/lib/services/tipping-service",()=>({TippingService:jest.fn().mockImplementation((signer:ccc.Signer)=>({updateTipping:(data:unknown)=>mockPublish(signer,data),fundProtocolWithCKB:()=>{throw Error("Not used by these tests");}}))}));
+jest.mock("../admin-tip-recipient",()=>({...jest.requireActual("../admin-tip-recipient"),resolveProtocolTipRecipient:jest.fn()}));
+jest.mock("@/lib/services/tipping-service",()=>({TippingService:jest.fn().mockImplementation((signer:ccc.Signer,_tipping:unknown,_protocol:unknown,_policy:unknown,options?:{resolveRecipientLock?:(hash:ccc.Hex)=>Promise<ccc.Script|null>})=>({updateTipping:async(data:Parameters<typeof TippingData.encode>[0])=>{if(data.status==="granted"&&options?.resolveRecipientLock)await options.resolveRecipientLock(ccc.hexFrom(data.target_lock_hash));return mockPublish(signer,data);},fundProtocolWithCKB:()=>{throw Error("Not used by these tests");}}))}));
 jest.mock("../admin-tipping-capability",()=>({...jest.requireActual("../admin-tipping-capability"),readAdminTipCapability:jest.fn(),makeAdminTipExecutionPolicy:jest.fn()}));
 jest.mock("../admin-tipping-confirmation",()=>({...jest.requireActual("../admin-tipping-confirmation"),inspectInvalidAdminTipReceipt:jest.fn()}));
 function deferred<T>(){let resolve!:(value:T)=>void;const promise=new Promise<T>(yes=>{resolve=yes;});return{promise,resolve};}
@@ -66,6 +68,7 @@ function reviewerFixture({first=false,registered=true,paired=true}={}) {
 function revokedSnapshot(f:ReturnType<typeof reviewerFixture>){const data={...f.registry,tipping:{...f.registry.tipping,approverLockHashes:[]}};return {...f.snapshot,data,cell:ccc.Cell.from({...f.snapshot.cell,outputData:encodeAdminRegistry(data)})};}
 const draft=():AdminTipDraft=>({title:"A real-scoped QA proposal",recipient:mockFixture.targetAddress.toString(),summary:"Synthetic offline transaction test",rewards:[{assetId:"points",amount:"1"}]});
 beforeEach(()=>{jest.clearAllMocks();localStorage.clear();mockFixture=adminUsersFixture();mockCurrent=[];mockTransaction=null;mockCapability={available:false,unavailableReason:"Independent tip settings require the paired, reviewed Tipping/Funding contract and SDK deployment.",manifest:null};mockQa={network:"testnet",protocol:{typeHash:mockFixture.scope.protocolHash}};
+  jest.mocked(resolveProtocolTipRecipient).mockImplementation(async()=>mockFixture.targetLock);
   jest.mocked(inspectInvalidAdminTipReceipt).mockImplementation(jest.requireActual<typeof import("../admin-tipping-confirmation")>("../admin-tipping-confirmation").inspectInvalidAdminTipReceipt);
   const native=ccc.Cell.from({outPoint:{txHash:h("c"),index:0},cellOutput:{capacity:100000000000n,lock:mockFixture.lock},outputData:"0x"});mockFixture.client.getCell=jest.fn(async()=>native);mockFixture.client.waitTransaction=jest.fn().mockResolvedValue({});
   mockFixture.client.getTransaction=jest.fn(async()=>mockTransaction?{transaction:mockTransaction,status:"committed",blockNumber:10n} as Awaited<ReturnType<ccc.Client["getTransaction"]>>:undefined);
@@ -196,12 +199,26 @@ describe("Standalone Registry Approver detail",()=>{
     expect(result.current).toMatchObject({access:"allowed",isAdmin:false,canManage:false,canApprove:true,settingsAvailable:false});
     expect(readAdminUsers).not.toHaveBeenCalled();expect(readAdminTips).not.toHaveBeenCalled();expect(readProtocolTipHistory).toHaveBeenCalled();expect(mockPublish).not.toHaveBeenCalled();
     await act(async()=>{await expect(result.current.approve(result.current.selected!)).resolves.toBe(f.id);});
-    expect(mockPublish).toHaveBeenCalledTimes(1);expect(mockFixture.client.sendTransaction).toHaveBeenCalledTimes(1);expect(jest.requireMock("@/lib/services/tipping-service").TippingService.mock.calls[0][4]).toEqual({allowFeeRetry:false});
+    expect(mockPublish).toHaveBeenCalledTimes(1);expect(mockFixture.client.sendTransaction).toHaveBeenCalledTimes(1);expect(jest.requireMock("@/lib/services/tipping-service").TippingService.mock.calls[0][4]).toEqual({allowFeeRetry:false,resolveRecipientLock:expect.any(Function)});
+    expect(resolveProtocolTipRecipient).toHaveBeenCalledTimes(1);expect(resolveProtocolTipRecipient).toHaveBeenCalledWith(expect.objectContaining({protocolHash:mockFixture.scope.protocolHash,lockHash:mockFixture.scope.lockHash}),mockFixture.targetLock.hash());
     expect(mockCurrent[0].data.supporter_lock_hashes).toEqual([mockFixture.targetLock.hash(),mockFixture.scope.lockHash]);
     await expect(result.current.createProposal(draft())).rejects.toThrow(/administrators/);
     await expect(result.current.fund(adminTipAssets(mockFixture.scope)[1],"100")).rejects.toThrow(/administrators/);
     await expect(result.current.saveSettings({expirationDays:"3",approverLockHashes:[],thresholdsCkb:[]})).rejects.toThrow(/administrators/);
     expect(saveAdminTipSettings).not.toHaveBeenCalled();
+  });
+  it("stops a final endorsement before wallet publication when recipient chain evidence fails",async()=>{
+    const f=reviewerFixture(),{result}=setup({tipId:f.id});await waitFor(()=>expect(result.current.canApprove).toBe(true));
+    jest.mocked(resolveProtocolTipRecipient).mockRejectedValue(Error("The exact recipient User Cell is no longer live"));
+    await act(async()=>{await expect(result.current.approve(result.current.selected!)).rejects.toThrow(/recipient User Cell is no longer live/);});
+    expect(mockPublish).not.toHaveBeenCalled();expect(mockFixture.client.sendTransaction).not.toHaveBeenCalled();expect(mockRegister).not.toHaveBeenCalled();expect(localStorage.length).toBe(0);
+  });
+  it("preserves unregistered recipients only for an explicit complete not-found lookup",async()=>{
+    const f=reviewerFixture(),{result}=setup({tipId:f.id});await waitFor(()=>expect(result.current.canApprove).toBe(true));
+    jest.mocked(resolveProtocolTipRecipient).mockRejectedValue(new TipRecipientUserNotFoundError());
+    await act(async()=>{await expect(result.current.approve(result.current.selected!)).resolves.toBe(f.id);});
+    const resolve=jest.requireMock("@/lib/services/tipping-service").TippingService.mock.calls[0][4].resolveRecipientLock;
+    await expect(resolve(mockFixture.targetLock.hash())).resolves.toBeNull();
   });
   it("never gives an Approver access to the Admin list, creation or settings workspace",async()=>{
     reviewerFixture();const{result}=setup();await waitFor(()=>expect(result.current.access).toBe("denied"));

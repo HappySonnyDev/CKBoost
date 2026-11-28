@@ -31,6 +31,13 @@ export interface AdminTippingExecutionPolicy {
   declaredAtMs: bigint;
 }
 
+export interface TippingTransactionOptions {
+  allowFeeRetry?: boolean;
+  /** The isolated Admin flow resolves a recipient from its own protocol's
+   * verified chain evidence instead of the legacy Explorer endpoint. */
+  resolveRecipientLock?: (lockHash: ccc.Hex) => Promise<ccc.Script | null>;
+}
+
 export class TippingService {
   private signer?: ccc.Signer;
   private tipping: Tipping | null;
@@ -40,19 +47,21 @@ export class TippingService {
   private protocolDataCache?: ReturnType<typeof ProtocolData.decode>;
   private adminPolicy?: AdminTippingExecutionPolicy;
   private transactionOptions:{allowFeeRetry?:boolean};
+  private readonly recipientLockResolver?: TippingTransactionOptions["resolveRecipientLock"];
 
   constructor(
     signer: ccc.Signer | undefined,
     tipping: Tipping | null,
     protocolCell: ccc.Cell,
     adminPolicy?: AdminTippingExecutionPolicy,
-    transactionOptions:{allowFeeRetry?:boolean}={}
+    transactionOptions:TippingTransactionOptions={}
   ) {
     this.signer = signer;
     this.tipping = tipping;
     this.protocolCell = protocolCell;
     this.adminPolicy = adminPolicy;
-    this.transactionOptions=transactionOptions;
+    this.transactionOptions={allowFeeRetry:transactionOptions.allowFeeRetry};
+    this.recipientLockResolver=transactionOptions.resolveRecipientLock;
     if (adminPolicy && (adminPolicy.protocolTypeHash !== protocolCell.cellOutput.type?.hash() ||
       adminPolicy.registryCell.cellOutput.type?.hash() !== adminPolicy.registryTypeHash ||
       !adminPolicy.registryCell.cellOutput.lock.eq(adminPolicy.registryCell.cellOutput.type!) ||
@@ -787,6 +796,22 @@ export class TippingService {
   }
 
   private async resolveLockScript(lockHash: ccc.Hex): Promise<ccc.Script> {
+    if (this.adminPolicy) {
+      if (!this.recipientLockResolver) {
+        throw new Error("The reviewed tipping flow requires a verified protocol recipient resolver. Nothing was signed.");
+      }
+      const resolved = await this.recipientLockResolver(lockHash);
+      if (resolved !== null) {
+        const script = ccc.Script.from(resolved);
+        if (script.hash() !== lockHash) {
+          throw new Error("The verified recipient lock does not match this proposal. Nothing was signed.");
+        }
+        return script;
+      }
+      // A proposal may target an address without a registered User Cell.
+      // Only an explicit not-found result keeps that legacy preimage lookup;
+      // a failed or conflicting chain proof must never fall through here.
+    }
     const url = new URL("/api/resolve-lock-script", window.location.origin);
     url.searchParams.set("hash", lockHash);
 
@@ -808,11 +833,15 @@ export class TippingService {
       args: string;
     };
 
-    return ccc.Script.from({
+    const resolved = ccc.Script.from({
       codeHash: lockScript.code_hash,
       hashType: lockScript.hash_type,
       args: lockScript.args,
     });
+    if (this.adminPolicy && resolved.hash() !== lockHash) {
+      throw new Error("The resolved recipient lock does not match this proposal. Nothing was signed.");
+    }
+    return resolved;
   }
 
   private cloneTippingData(data: TippingDataLike): TippingDataLike {

@@ -19,7 +19,7 @@
 
 升级后再次对当前 live 数据只读核验：原测试活动 `8a05055c…9bad32`、Account 3 的 owner、Account 4 的 Reviewer、Account 2 的原 UserCell 和 **1 Point** 均保留；活动和 UserCell 的原 outpoint/data 未改变。新 Registry 初始 revision=0，阈值 1,000/5,000/10,000 CKB、有效期 30 天、Approver 为 Account 3。Organizer 身份本身不授予 Tip 背书权。
 
-金融签名页 `/revamp/testnet-admin-financial-sign` 将审阅、签名保存、单次显式广播和确认分开。已保存广播尝试后只能查原回执，不重新签发；刷新保留已签字节。当前新能力真实钱包验收仍需逐项执行：手工验证、奖励周期、Tip 首审与指定 Approver 后续背书、资金与支付等。合约确认和只读数据保留通过，不等于这些流程已全部通过。
+金融签名页 `/revamp/testnet-admin-financial-sign` 将审阅、签名保存、单次显式广播和确认分开。已保存广播尝试后只能查原回执，不重新签发；刷新保留已签字节。下方逐项记录手工验证、奖励周期和 Tip 的实际钱包验收结果；尚未完成的指定 Approver 最终背书、资金与支付不能由合约部署确认代替。
 
 签名页初版全量 dapp Jest 131 suites / 1,127 tests 通过。最终审查补充广播实际边界的账户、客户端、scope 与完整签名字节校验，保留 CCC 的手续费校验及缓存；相关 4 suites / 81 tests 通过，包含 6 个新增回归场景。发布配置与 QA 工具 85 项 Node tests、最终同一 v4 的 production build 通过；实际启动验证也修复了新版 pnpm 需要明确 Netlify 可执行文件的问题。历史 6 项类型诊断的界限仍见下方第六节。
 
@@ -53,9 +53,31 @@ SDK 现先确定最终 Tip lock/type/data，再动态重算唯一状态输出的
 
 旧 v1 回执只有 action/hash，节点查不到正文时不能直接解除。新增恢复流程要求精确正文、raw hash、创建 action、完整 QA/proposer/owner 绑定和实际容量缺口均验证通过；只读节点检查不允许 pending、proposed 或 committed。先持久化诊断并回读验证，再显式归档这一个回执与对应全局待确认通知，不自动签名、重发或创建另一提案。新 v2 回执在发送前强制保存完整公开交易字节并验证，保存失败会停止提交。CCC 1.19 会自动调整低容量的解析行为也有反例保护，不能在核验证据时悄悄改变 raw hash。
 
-公开交易证明显示本次只有 `c3d2…63bc:1` 一个资金输入；已核验该 Cell 仍 live、仍归 Account 1，容量 6,869.57259505 tCKB。单次同库恢复证明后来读到该 hash 为 rejected；更早的 unknown 取样也保留，两者没有被混为已确认。当前只证明原尝试无效且原资金输入未消耗，修复后的新 Tip 创建、首审、资金存入与最终支付仍待用户逐笔签名验收。
+公开交易证明显示无效尝试只有 `c3d2…63bc:1` 一个资金输入；归档时已核验该 Cell 仍 live、仍归 Account 1，容量 6,869.57259505 tCKB。单次同库恢复证明后来读到该 hash 为 rejected；更早的 unknown 取样也保留，两者没有被混为已确认。该次取样只证明原尝试无效且当时原资金输入未消耗；随后修复版本的实际结果如下。
 
 SDK 定向测试 15 项、既有 dapp Tip 相关测试 9 项及 SDK TypeScript 编译通过；首轮集成完整 Jest **134 suites / 1,189 tests** 通过。最终补充归档重试与账户切换边界后，hook/UI **2 suites / 48 tests** 通过，最终 QA production build 通过；已核对本地实际提供 v2 回执、容量归档和签名前检查的新 JS。类型检查仍仅有原先 6 项诊断。公开 Console 日志的 witness 是签名前占位内容；该日志证明 raw body 与容量缺口，不把它当成钱包签名有效性的证明。
+
+### 已确认 Tip 创建与首次审批（2026-11-29）
+
+Account 1 重新审阅后创建成功，交易为 `0xd36e2b719fc504c794f34e4730199574ae6d3aa239a09a63efb9ca66dedd1158`，提案 ID 为 `0x02a334a4be26436e936bd1f12d69e0eb7f17ace539ed30dac6ee17b6a54b2cf4`。奖励为给 Account 2 支付 1,000 tCKB，无 Points、UDT 或 NFT 奖励。实际正文末尾没有最初示例的句号，因此数据为 403 字节，最终状态 Cell 的最低容量和实际容量均为 **629 tCKB**；手续费 **0.00027480 tCKB**。创建消耗上述原资金 Cell，不消耗任何资金池 Cell，也不代表奖励已经支付。
+
+首次审批交易 `0xd61c19c4ed65c6053db819b0892e6ece84b5d04fcfe25e42b10664ae09c2d18b` 已核验 committed/current live。实际签名者为 Account 1，supporters 从空变为仅 Account 1，状态从 created 变为 approved，页面对应 **1/2、Awaiting endorsements**；granted_at 仍为 0。提案完整 type、原 owner、metadata 和奖励不变。状态数据从 403 增长到 436 字节，容量 **629 → 662 tCKB**，Account 1 支付新增存储 **33 tCKB** 和手续费 **0.00029660 tCKB**。
+
+两笔均核对实际输入父交易、canonical raw hash 和当时 live 输出。首审完成时 QA 资金池仍为空，Account 2 未收到 1,000 tCKB；Registry revision=2、手工验证和奖励周期、Protocol、Campaign、UserCell、原 1 Point 均保留。
+
+随后 Account 1 的存款交易 `0x63b88f02656580d1ac4eee2fb3829bda79931a53dc08195b73a7490d740e4bcc` 已核验 committed/current live。它仅消费 Account 1 的普通资金、创建完整 QA FundingLock 下唯一 **1,000 tCKB** 的无 type、空 data 池 Cell，其余找零归 Account 1，手续费 **0.00010700 tCKB**。池 Cell 最低 73 tCKB 容量包含在 1,000 内，不额外预留 73；本笔没有消费或修改原提案，仍为 1/2，没有向 Account 2 付款。上述 Registry、协议、活动、用户及 1 Point 保持原样。Account 3 的最终审批和实际支付仍待签名及独立核验。
+
+资金核验工具最初将空 data 的通用 Blake2b 哈希与节点的 Cell data hash 比较而停止，未将该失败当成充值失败。精确只读原始响应证实：CKB RPC 的空数据 hash 是全零 Byte32；现已仅对空 `0x` 使用该规则，非空仍校验 Blake2b，并保留与 canonical 父交易完整脚本、容量和 data 的比较。修正后重新执行完整核验通过，未重新签名或发送。首审、资金和最终支付的独立核验工具分别有 11、11、14 项离线测试通过；最终支付工具的通过测试不代表实际付款已经发生。
+
+### 最终审批前的收款锁解析修复（2026-11-29）
+
+Account 3 首次尝试最终背书时，在钱包签名前收到 `Failed to resolve lock script (status 500)`。本地函数日志确认旧 `/api/resolve-lock-script` 调用测试网 Explorer 搜索接口被拒绝连接，错误发生在构造收款输出前。只读回查仍是原 1/2 提案，不能把这次失败或签名前的准备状态称为付款。
+
+新版 QA 金融 service 现注入按当前协议解析收款锁的只读回调：按协议配置的 UserType 发现唯一匹配 target lock hash 的 canonical UserCell，随后使用未缓存接口核对已确认父交易完整输出与当前 live Cell，再检查返回锁的哈希与提案完全一致。非 Admin 的 Registry Approver 可执行这些公开读取，不因此获得 Users 管理权限。账户、协议、Registry、实际签名和提交的既有检查保留；证据冲突或失败均停止准备，不回退到 Explorer。
+
+原提案允许未注册的有效 CKB 地址收款。为保持这项行为，只有完整查找明确没有 UserCell 时才返回专用 not-found 结果，并保留原 preimage 搜索；新版 QA 对该返回值额外核对完整 Script hash。未知错误、错误脚本、解析失败或 `undefined` 不能冒充 not-found。旧流程和旧页面的配置及调用路径未切换。
+
+实际只读探针使用真实 helper、CCC NoCache API 和固定官方 Testnet 节点，以 Account 3 scope 在 5.159 秒内核验出 Account 2 的 OmniLock（`args=0x121eed0a14e8cc8d5f81e2a82abc4e8f70bc772d4400`），地址末尾 gp89、hash `36495d2c…1e338b`，与原提案一致；签名、发送、SSRI 和 Explorer 调用数均为 0。三组 service、recipient helper 和 hook 测试 **68 项通过**，QA production build 通过，已检查本地实际提供的 32 个初始 JS 和 2 个延迟 chunk 含新逻辑及同一 4faf profile。此次修复不需要重新部署合约、存入资金或改线上配置，最终审批仍需用户显式签名后另行核验。
 
 ## 11 月 25 日交付时记录（历史）
 
